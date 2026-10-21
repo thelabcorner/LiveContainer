@@ -12,6 +12,7 @@ final class BuiltInSideStoreAppInfo : LCAppInfo {
 
     private override init() {
         super.init(bundlePath: Bundle.main.bundleURL.appendingPathComponent("Frameworks/SideStoreApp.framework").path)
+        relativeBundlePath = Self.launchBundleName
     }
 
     override func homeScreenLaunchBundleName() -> String! {
