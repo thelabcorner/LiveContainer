@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 EXPECTED_BUNDLE_ID = "com.kdt.livecontainer"
-INFO_PATTERN = re.compile(r"^Payload/[^/]+\\.app/Info\\.plist$")
+INFO_PATTERN = re.compile(r"^Payload/[^/]+\.app/Info\.plist$")
 
 
 def inspect_ipa(ipa_path: Path, *, expect_embedded_sidestore: bool) -> tuple[str, str]:
