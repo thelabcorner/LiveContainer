@@ -70,6 +70,20 @@ Nightly
 |<a href="https://github.com/LiveContainer/LiveContainer/releases/latest/download/LiveContainer+SideStore.ipa" target="_blank"><img src="https://raw.githubusercontent.com/StikStore/altdirect/refs/heads/main/assets/png/Download_Blue.png" alt="Download .ipa" width="200" /></a>|<a href="https://github.com/LiveContainer/LiveContainer/releases/download/nightly/LiveContainer+SideStore.ipa" target="_blank"><img src="https://raw.githubusercontent.com/StikStore/altdirect/refs/heads/main/assets/png/Download_Blue.png" alt="Download .ipa" width="200" /></a>|
 
 
+### Experimental SideStore Home Screen launcher (thelabcorner fork, fd35e8b)
+
+The [October 21, 2026 test release](https://github.com/thelabcorner/LiveContainer/releases/tag/sidestore-webclip-fd35e8b) includes a built-in SideStore Home Screen Web Clip launcher. **The IPA's actual bundle identifier is `com.kdt.livecontainer`**, even though its filename is `LiveContainer+SideStore.ipa`.
+
+**Install using one of these paths:**
+
+1. **Direct URL (corrected):** In SideStore, choose **My Apps → + → Install from URL** and paste [this `com.kdt.livecontainer.ipa` release asset](https://github.com/thelabcorner/LiveContainer/releases/download/sidestore-webclip-fd35e8b/com.kdt.livecontainer.ipa). It has the correct filename for SideStore's URL-import verification.
+2. **AltSource:** [Add the pinned experimental source to SideStore](sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fthelabcorner%2FLiveContainer%2F500b7b21c8a2b3d107039181de07177660092931%2F.github%2Fapps_webclip_test.json) and install **LiveContainer + SideStore (Web Clip Test)** from its listing. [Source JSON](https://raw.githubusercontent.com/thelabcorner/LiveContainer/500b7b21c8a2b3d107039181de07177660092931/.github/apps_webclip_test.json).
+3. **Local file:** Download either release IPA into iOS Files, then choose **My Apps → + → Files** in SideStore and select it.
+
+**Do not paste the original `LiveContainer+SideStore.ipa` asset URL into "Install from URL".** SideStore 0.7.0's remote URL importer derives a temporary expected bundle ID from the filename, incorrectly selecting `LiveContainer+SideStore`; the IPA declares `com.kdt.livecontainer`. The newly uploaded `com.kdt.livecontainer.ipa` is a **byte-identical copy** of the original release asset and passes the basename identity check. Future CI/nightly builds also package and publish this URL-safe alias.
+
+This is a **test build**. CI packaging has run, but installation and launcher behavior on a physical device have not been verified. Installing over an existing `com.kdt.livecontainer` app can replace that app rather than creating another copy; preserve your app data and avoid uninstalling existing LiveContainer instances to work around a source mismatch.
+
 ## Requirements
 
 - iOS/iPadOS 15+
