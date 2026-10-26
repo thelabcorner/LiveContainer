@@ -22,6 +22,7 @@ jobs:
       archive_path: ${{ env.archive_path }}
       artifact: ${{ env.scheme }}.ipa
       artifact2: ${{ env.scheme }}+SideStore.ipa
+      artifact3: com.kdt.livecontainer.ipa
     steps:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -75,6 +76,7 @@ jobs:
           python3 .github/validate_sideload_release.py \
             --standard "LiveContainer.ipa" \
             --sidestore "LiveContainer+SideStore.ipa" \
+            --alias "com.kdt.livecontainer.ipa" \
             --source ".github/apps_webclip_test.json"
 
       - name: Upload a Build Artifact
@@ -88,6 +90,12 @@ jobs:
         with:
           name: ${{ env.scheme }}+SideStore.ipa
           path: ${{ env.scheme }}+SideStore.ipa
+
+      - name: Upload URL-safe SideStore IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: com.kdt.livecontainer.ipa
+          path: com.kdt.livecontainer.ipa
 
   release__nightly:
     name: Nightly Release
@@ -111,6 +119,10 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build.outputs.artifact2 }}
+      - name: Download URL-safe SideStore IPA
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact3 }}
       - name: Get Commit Info
         id: commit_info
         run: |
@@ -140,6 +152,7 @@ jobs:
           files: |
             ${{ needs.build.outputs.artifact }}
             ${{ needs.build.outputs.artifact2 }}
+            ${{ needs.build.outputs.artifact3 }}
             .github/apps_nightly.json
       - name: Update apps.json in Release 1.0
         uses: softprops/action-gh-release@v3
