@@ -1,0 +1,5 @@
+Source: https://github.com/ucsandman/SideTap
+Commit: 05b05c1da96f7fe3e720f49e033be1455d52810a
+License: MIT (see LICENSE)
+Vendored upstream snapshot, then extended locally with CoreDevice/MCP integration; see fork commit history.
+Windows companion only; not part of the iPhone executable.

@@ -1,0 +1,50 @@
+name: SideTap one-slot integration (offline)
+
+on:
+  push:
+    branches:
+      - feature/one-slot-sidetap-wda
+  pull_request:
+    paths:
+      - "SideTapIntegration/**"
+      - "scripts/stage_sidetap_wda_research.py"
+      - "scripts/validate_sidetap_bundle.py"
+      - "tests/test_sidetap*"
+      - ".github/workflows/sidetap-integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  structural-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Offline one-slot archive and staging invariants
+        run: python -m pytest -q tests/test_sidetap_bundle_validator.py tests/test_sidetap_wda_staging.py
+
+  sidetap-source-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: SideTapIntegration/SideTap
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install official SideTap dependencies and pytest
+        run: python -m pip install --disable-pip-version-check -r ../requirements-ci.txt
+      - name: Run unmodified upstream regression tests plus CoreDevice tests
+        run: python -m pytest -q tests
+
+# These jobs intentionally never sign, install, launch XCTest on, or modify a phone.
+# No device-integrity, XCTest bootstrap or Apple free-slot claim follows from CI.

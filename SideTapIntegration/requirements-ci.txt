@@ -1,0 +1,5 @@
+# Tested against the Windows prototype on 2026-10-26; top-level pins only.
+requests==2.34.2
+mcp==1.30.0
+pymobiledevice3==11.45.0
+pytest==9.0.3
