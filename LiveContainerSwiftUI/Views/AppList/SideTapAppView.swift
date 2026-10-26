@@ -218,6 +218,26 @@ private struct SideTapVerifiedWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView,
+                     decidePolicyFor navigationResponse: WKNavigationResponse,
+                     decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            // WKWebView will otherwise display a bare "forbidden" or raw 501
+            // HTML response as though it were the application. Make transport
+            // failures actionable and keep the pairing screen available.
+            if navigationResponse.isForMainFrame,
+               let response = navigationResponse.response as? HTTPURLResponse,
+               response.statusCode >= 400 {
+                let status = response.statusCode
+                DispatchQueue.main.async {
+                    self.onError("SideTap workstation rejected the connection (HTTP \(status)). Verify pairing and reopen the application.")
+                }
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
+        }
+
+
+        func webView(_ webView: WKWebView,
                      decidePolicyFor action: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             // A paired viewer must never navigate to arbitrary sites or plain HTTP.

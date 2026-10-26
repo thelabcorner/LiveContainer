@@ -58,6 +58,10 @@ companion: the already installed iOS IPA works with the corrected server.
 The optional iOS onboarding text revision clarifies that **the 64-character
 hexadecimal TLS fingerprint is entered first**, and that the **pairing code
 is entered on the separate login screen**.
+The native WKWebView now also catches main-frame HTTP 4xx/5xx responses and
+offers a native retry and pairing-settings path rather than displaying a raw
+"forbidden" or 501 page. Existing installed iOS builds do not need this UI
+change to benefit from the fixed workstation server.
 
 After a leaked pairing code, stop the companion, rotate its saved pairing
 secret in the workstation state directory, and restart it. The TLS

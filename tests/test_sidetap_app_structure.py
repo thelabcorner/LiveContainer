@@ -49,6 +49,9 @@ def test_pinned_tls_and_no_external_web_navigation():
     assert "64-character SHA-256 fingerprint" in swift
     assert "Do not paste the pairing code here" in swift
     assert "The pairing code belongs on the next screen" in swift
+    assert "decidePolicyFor navigationResponse: WKNavigationResponse" in swift
+    assert "response.statusCode >= 400" in swift
+    assert "SideTap workstation rejected the connection" in swift
 
 
 def test_existing_app_identity_and_network_permission_preserved():
