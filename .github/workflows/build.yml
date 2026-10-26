@@ -70,6 +70,13 @@ jobs:
         run: |
           sh .github/build_github.sh
 
+      - name: Validate IPA identities and test SideStore source
+        run: |
+          python3 .github/validate_sideload_release.py \
+            --standard "LiveContainer.ipa" \
+            --sidestore "LiveContainer+SideStore.ipa" \
+            --source ".github/apps_webclip_test.json"
+
       - name: Upload a Build Artifact
         uses: actions/upload-artifact@v7
         with:
