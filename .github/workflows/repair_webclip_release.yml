@@ -1,0 +1,70 @@
+name: Add URL-safe alias to October 21 SideStore test release
+
+on:
+  push:
+    branches:
+      - feature/builtin-sidestore-home-screen
+    paths:
+      - .github/workflows/repair_webclip_release.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-webclip-release-alias
+  cancel-in-progress: false
+
+jobs:
+  add-alias:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: thelabcorner/LiveContainer
+      TAG: sidestore-webclip-fd35e8b
+    steps:
+      - name: Read release and skip if alias already exists
+        id: already
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name' | grep -Fxq 'com.kdt.livecontainer.ipa'; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify original IPA bundle ID and create byte-identical alias
+        if: steps.already.outputs.present == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p downloaded
+          gh release download "$TAG" -R "$REPO" --pattern 'LiveContainer+SideStore.ipa' --dir downloaded
+          python3 - <<'PY'
+          import plistlib
+          import re
+          import zipfile
+
+          ipa = "downloaded/LiveContainer+SideStore.ipa"
+          with zipfile.ZipFile(ipa) as archive:
+              infos = [n for n in archive.namelist() if re.fullmatch(r"Payload/[^/]+\.app/Info\.plist", n)]
+              if len(infos) != 1:
+                  raise SystemExit(f"Expected one primary app Info.plist, found: {infos}")
+              info = plistlib.loads(archive.read(infos[0]))
+              if info.get("CFBundleIdentifier") != "com.kdt.livecontainer":
+                  raise SystemExit(f"IPA bundle ID mismatch: {info.get('CFBundleIdentifier')}")
+              if info.get("CFBundleShortVersionString") != "3.8.11":
+                  raise SystemExit(f"Unexpected IPA version: {info.get('CFBundleShortVersionString')}")
+              if not any("SideStoreApp.framework/" in name for name in archive.namelist()):
+                  raise SystemExit("IPA does not contain embedded SideStore")
+              if archive.testzip():
+                  raise SystemExit("IPA ZIP CRC validation failed")
+          print("Verified existing release IPA identity and integrity")
+          PY
+          cp downloaded/LiveContainer+SideStore.ipa downloaded/com.kdt.livecontainer.ipa
+          sha256sum downloaded/*.ipa
+          cmp downloaded/LiveContainer+SideStore.ipa downloaded/com.kdt.livecontainer.ipa
+
+      - name: Publish additional alias without modifying original asset
+        if: steps.already.outputs.present == 'false'
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" downloaded/com.kdt.livecontainer.ipa -R "$REPO"
