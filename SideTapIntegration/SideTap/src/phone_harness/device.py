@@ -105,7 +105,7 @@ def _run(args: list[str], timeout: float = 30.0) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         timeout=timeout,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0,
     )
 
 
@@ -344,7 +344,7 @@ def _spawn(name: str, args: list[str]) -> int:
     log = open(_log_file(name), "w", encoding="utf-8")
     flags = 0
     if sys.platform == "win32":
-        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     proc = subprocess.Popen(
         [exe, *pin_udid(args)],
         stdout=log,
@@ -362,7 +362,7 @@ def _pid_alive(pid: int) -> bool:
             ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return str(pid) in proc.stdout
     try:
@@ -381,7 +381,7 @@ def _pid_image(pid: int) -> str:
             ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         first = proc.stdout.strip().splitlines()
         if first and first[0].startswith('"'):
@@ -409,7 +409,7 @@ def _safe_kill(pid: int, expected_prefix: str, tree: bool = True) -> bool:
         subprocess.run(
             cmd,
             capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     else:
         import os
@@ -557,7 +557,7 @@ def _free_port(port: int) -> None:
             ["netstat", "-ano", "-p", "tcp"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
         return
@@ -575,13 +575,13 @@ def _free_port(port: int) -> None:
             ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if "ios.exe" in info.stdout.lower():
             subprocess.run(
                 ["taskkill", "/F", "/PID", pid],
                 capture_output=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
 
 
@@ -597,7 +597,7 @@ def _netstat_ano_lines() -> list[str]:
             ["netstat", "-ano", "-p", "tcp"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         lines = proc.stdout.splitlines()
     except OSError:
@@ -650,7 +650,7 @@ def lan_block_rule_active(rule_name: str = "phone-harness block LAN") -> bool:  
             capture_output=True,
             text=True,
             timeout=15,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
