@@ -1,0 +1,36 @@
+{
+  "name": "thelabcorner LiveContainer Test Builds",
+  "identifier": "com.thelabcorner.livecontainer.testbuilds",
+  "subtitle": "Experimental LiveContainer builds from the public fork",
+  "description": "This source pins the experimental SideStore Web Clip release to its real iOS bundle identifier. Use this source to install from SideStore instead of pasting the release IPA URL into Install from URL.",
+  "website": "https://github.com/thelabcorner/LiveContainer",
+  "iconURL": "https://raw.githubusercontent.com/thelabcorner/LiveContainer/main/screenshots/AppIcon1024.png",
+  "tintColor": "#0784FC",
+  "apps": [
+    {
+      "name": "LiveContainer + SideStore (Web Clip Test)",
+      "bundleIdentifier": "com.kdt.livecontainer",
+      "developerName": "thelabcorner",
+      "subtitle": "Experimental built-in SideStore Home Screen launcher",
+      "localizedDescription": "Experimental fd35e8b build with a built-in SideStore Home Screen Web Clip launcher. macOS CI passed. Physical-device installation and launcher behavior are not yet verified. Free Apple ID signing still needs periodic refresh.",
+      "iconURL": "https://raw.githubusercontent.com/thelabcorner/LiveContainer/main/screenshots/AppIcon1024.png",
+      "tintColor": "#0784FC",
+      "category": "utilities",
+      "version": "3.8.11",
+      "versionDate": "2026-10-21T23:44:07Z",
+      "versionDescription": "Experimental fd35e8b build with a built-in SideStore Home Screen Web Clip launcher. macOS CI passed. Physical-device installation and launcher behavior are not yet verified. Free Apple ID signing still needs periodic refresh.",
+      "downloadURL": "https://github.com/thelabcorner/LiveContainer/releases/download/sidestore-webclip-fd35e8b/LiveContainer%2BSideStore.ipa",
+      "size": 24156964,
+      "versions": [
+        {
+          "version": "3.8.11",
+          "date": "2026-10-21T23:44:07Z",
+          "localizedDescription": "Experimental fd35e8b build with a built-in SideStore Home Screen Web Clip launcher. macOS CI passed. Physical-device installation and launcher behavior are not yet verified. Free Apple ID signing still needs periodic refresh.",
+          "downloadURL": "https://github.com/thelabcorner/LiveContainer/releases/download/sidestore-webclip-fd35e8b/LiveContainer%2BSideStore.ipa",
+          "size": 24156964
+        }
+      ]
+    }
+  ],
+  "news": []
+}
