@@ -194,3 +194,89 @@ def test_real_tls_handshake_matches_pinned_fingerprint(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+def test_webkit_form_without_origin_can_pair(companion_fixture):
+    """WKWebView may send a same-origin top-level form without Origin."""
+    from urllib.parse import urlencode
+    port, token, url = companion_fixture
+    status, headers, _ = ask(
+        port, "POST", "/pair", body=urlencode({"code": token}).encode(),
+        headers={"Content-Type": "application/x-www-form-urlencoded",
+                 "Sec-Fetch-Site": "same-origin"},
+    )
+    assert status == 303
+    assert headers["Location"] == "/"
+    assert "SideTapSession=" in headers["Set-Cookie"]
+
+
+def test_webkit_form_with_origin_null_stays_blocked(companion_fixture):
+    """Opaque/sandboxed cross-origin documents must not obtain a session."""
+    from urllib.parse import urlencode
+    port, token, url = companion_fixture
+    status, headers, _ = ask(
+        port, "POST", "/pair", body=urlencode({"code": token}).encode(),
+        headers={"Content-Type": "application/x-www-form-urlencoded",
+                 "Origin": "null", "Sec-Fetch-Site": "cross-site"},
+    )
+    assert status == 403
+    assert headers.get("Connection", "").lower() == "close"
+    assert "Set-Cookie" not in headers
+
+
+@pytest.mark.parametrize("headers", [
+    {"Origin": "https://evil.example", "Content-Type": "application/x-www-form-urlencoded"},
+    {"Content-Type": "application/x-www-form-urlencoded", "Sec-Fetch-Site": "cross-site"},
+])
+def test_rejected_form_closes_socket_without_501_body_leak(companion_fixture, headers):
+    """Regression: body was parsed as 'code=...GET' HTTP verb on same connection."""
+    import socket
+    from urllib.parse import urlencode
+    port, token, url = companion_fixture
+    body = urlencode({"code": token}).encode()
+    with socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+        sock.settimeout(3)
+        header = (
+            "POST /pair HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{port}\r\n"
+            "Connection: keep-alive\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            + "".join(f"{k}: {v}\r\n" for k, v in headers.items())
+            + "\r\n"
+        ).encode()
+        sock.sendall(header + body)
+        first = sock.recv(4096)
+        assert b"403 Forbidden" in first
+        assert b"Connection: close" in first
+        # The server MUST close rather than parse the unread code as a new
+        # method, which previously reflected the sensitive code in a 501 page.
+        remainder = bytearray()
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            remainder.extend(chunk)
+        assert b"501 Unsupported" not in first + remainder
+        assert token.encode() not in first + remainder
+
+
+def test_wrong_pairing_content_type_closes_undrained_body(companion_fixture):
+    port, token, url = companion_fixture
+    status, headers, body = ask(port, "POST", "/pair",
+        body=b"code=invalid", headers={
+            "Origin": url, "Content-Type": "application/json"})
+    assert status == 400
+    assert headers.get("Connection", "").lower() == "close"
+
+
+def test_api_mutation_with_missing_origin_requires_same_origin_fetch_metadata(companion_fixture):
+    port, token, url = companion_fixture
+    cookie = pair(port, token, url)
+    status, headers, _ = ask(port, "POST", "/api/tap",
+        body=b'{"x":1}', headers={
+            "Cookie": cookie, "Content-Type": "application/json"})
+    assert status == 403 and headers.get("Connection", "").lower() == "close"
+    status, _, body = ask(port, "POST", "/api/tap",
+        body=b'{"x":1}', headers={
+            "Cookie": cookie, "Content-Type": "application/json",
+            "Sec-Fetch-Site": "same-origin"})
+    assert status == 200

@@ -45,6 +45,10 @@ def test_pinned_tls_and_no_external_web_navigation():
     assert "SideTapVerifiedWebView(url: url, fingerprint: fingerprint)" in swift
     assert "WKWebView" in swift
     assert "iPhone control companion" not in swift  # reject the old placeholder status sheet
+    assert "Step 1 of 2" in swift
+    assert "64-character SHA-256 fingerprint" in swift
+    assert "Do not paste the pairing code here" in swift
+    assert "The pairing code belongs on the next screen" in swift
 
 
 def test_existing_app_identity_and_network_permission_preserved():

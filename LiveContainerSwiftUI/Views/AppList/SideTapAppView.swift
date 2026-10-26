@@ -108,8 +108,12 @@ struct SideTapAppView: View {
                             .frame(width: 86, height: 86)
                             .clipShape(RoundedRectangle(cornerRadius: 18))
                         Text("Connect SideTap").font(.largeTitle.bold())
-                        Text("Open the real SideTap application running on your Windows workstation. SideTap uses the existing LiveContainer installation and does not need another iOS app slot.")
+                        Text("Step 1 of 2 · Verify your Windows workstation")
+                            .font(.subheadline.weight(.semibold))
+                        Text("SideTap runs on your PC. Verify its address and certificate first; the next screen will ask for the pairing code. No additional iOS app slot is required.")
                             .foregroundStyle(.secondary)
+                        Text("Workstation HTTPS address")
+                            .font(.subheadline.weight(.semibold))
                         TextField("https://your-workstation:8781/", text: $urlInput)
                             .textContentType(.URL)
                             .textInputAutocapitalization(.never)
@@ -117,12 +121,14 @@ struct SideTapAppView: View {
                             .keyboardType(.URL)
                             .textFieldStyle(.roundedBorder)
                             .accessibilityLabel("SideTap workstation HTTPS address")
-                        TextField("TLS certificate SHA-256 fingerprint", text: $fingerprintInput)
+                        Text("TLS certificate fingerprint")
+                            .font(.subheadline.weight(.semibold))
+                        TextField("64 hexadecimal characters (SHA-256)", text: $fingerprintInput)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .textFieldStyle(.roundedBorder)
-                            .accessibilityLabel("Verified workstation certificate fingerprint")
-                        Text("Copy both values from the SideTap companion on your PC. The certificate fingerprint is required before any phone-control page can load. The actual application will ask you to pair securely.")
+                            .accessibilityLabel("TLS certificate fingerprint, not the pairing code")
+                        Text("Do not paste the pairing code here. Copy the 64-character SHA-256 fingerprint from the Windows companion. After opening SideTap, enter the pairing code on its own sign-in screen.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         if let connectionError {
@@ -132,7 +138,7 @@ struct SideTapAppView: View {
                         }
                         Button {
                             guard let (url, fingerprint) = Self.validate(url: urlInput, fingerprint: fingerprintInput) else {
-                                connectionError = "Enter an HTTPS address and the workstation's 64-digit certificate fingerprint."
+                                connectionError = "Enter the HTTPS address and 64-character hexadecimal TLS fingerprint. The pairing code belongs on the next screen."
                                 return
                             }
                             savedURL = url.absoluteString

@@ -36,6 +36,34 @@ The SideTap MCP stays disabled in OpenFork. This companion also **does not start
 
 The companion uses a persistent self-signed TLS certificate with an explicitly verified fingerprint, a separate secret pairing code, and an ephemeral `Secure; HttpOnly; SameSite=Strict` cookie. Only same-origin requests reach the existing **loopback-only** SideTap viewer. It removes MJPEG port references so the viewer uses same-origin screen polling rather than opening an unprotected second network port. The actual native WDA functionality is still dependent on successful WDA setup; CoreDevice remains the optional no-extra-slot input alternative.
 
+### iOS WebKit pairing compatibility and error recovery
+
+The first user-visible iOS pairing test exposed two real companion HTTP/1.1 bugs:
+
+- A top-level WebKit form can submit without an Origin header. The HTTPS
+  companion erroneously rejected the POST with 403, even when the user was
+  viewing its own pairing page. Same-origin WebKit form submissions are now
+  accepted if the separate pairing secret is correct, while mismatched or
+  opaque Origins and cross-site Fetch Metadata remain denied.
+- After a rejected POST, the server left the submitted form body unread on a
+  keep-alive connection. The next request could be misparsed as an HTTP method
+  beginning with code=, returning 501 and reflecting private material. Every
+  early POST rejection now ends the connection with Connection: close; the
+  sensitive body can no longer be interpreted as a subsequent HTTP method.
+
+The regression tests cover authentic iOS-like form headers, invalid origin
+and credential rejection, request framing, same-origin authenticated API
+calls, and TLS pin persistence. This fix is entirely in the workstation
+companion: the already installed iOS IPA works with the corrected server.
+The optional iOS onboarding text revision clarifies that **the 64-character
+hexadecimal TLS fingerprint is entered first**, and that the **pairing code
+is entered on the separate login screen**.
+
+After a leaked pairing code, stop the companion, rotate its saved pairing
+secret in the workstation state directory, and restart it. The TLS
+certificate should *not* be rotated in that operation because the iOS
+application pins its SHA-256 fingerprint.
+
 ### Security and limitations
 
 - The iPhone host rejects non-HTTPS URLs, missing or malformed TLS fingerprints, unexpected TLS certificates, and redirects to different hosts or ports.

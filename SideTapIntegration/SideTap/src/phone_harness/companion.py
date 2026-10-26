@@ -117,21 +117,41 @@ class CompanionHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
     def _origin_ok(self, for_post=False) -> bool:
+        """Fail closed on cross-origin navigation, but support WebKit forms.
+
+        A top-level WKWebView form POST may omit Origin. An explicit mismatched
+        or opaque Origin remains forbidden. For pairing, the separate random
+        pairing token is mandatory and Sec-Fetch-Site must not be cross-site.
+        Unpaired POSTs cannot control the device; authenticated API POSTs
+        lacking Origin require explicit same-origin fetch metadata.
+        """
         base = self.server.base_url
         if self.headers.get("Host") != self.server.authority:
             return False
         origin = self.headers.get("Origin")
-        if origin and origin != base:
+        if origin is not None and origin != base:
             return False
-        if for_post and origin != base:
+        fetch_site = self.headers.get("Sec-Fetch-Site", "none")
+        if fetch_site not in ("same-origin", "none"):
             return False
-        return self.headers.get("Sec-Fetch-Site", "none") in ("same-origin", "none")
+        if for_post and origin is None:
+            if self.path == "/pair":
+                return True  # exact secret required; WKWebView omitted Origin
+            return fetch_site == "same-origin"  # authenticated JS fetch only
+        return True
+
+    def _reject(self, code: int, message: bytes = b"forbidden") -> None:
+        """Close unread-body requests; never parse a form secret as HTTP."""
+        self.close_connection = True
+        self._send(code, message)
 
     def _authenticated(self) -> bool:
         jar = SimpleCookie()
@@ -188,19 +208,18 @@ class CompanionHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if not self._origin_ok(for_post=True):
-            self._send(403, b"forbidden")
+            self._reject(403)
             return
         try:
             length = int(self.headers.get("Content-Length", "-1"))
         except ValueError:
             length = -1
         if self.headers.get("Transfer-Encoding") or not 0 <= length <= MAX_BODY:
-            self.close_connection = True
-            self._send(413, b"invalid body length")
+            self._reject(413, b"invalid body length")
             return
         if self.path == "/pair":
             if length > 4096 or self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
-                self._send(400, b"invalid pairing request")
+                self._reject(400, b"invalid pairing request")
                 return
             from urllib.parse import parse_qs
             fields = parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
@@ -212,12 +231,10 @@ class CompanionHandler(BaseHTTPRequestHandler):
                 f"SideTapSession={self.server.session_secret}; Secure; HttpOnly; SameSite=Strict; Path=/")})
             return
         if not self._authenticated():
-            self.close_connection = True
-            self._send(401, b"pairing required")
+            self._reject(401, b"pairing required")
             return
         if not self.headers.get("Content-Type", "").startswith("application/json"):
-            self.close_connection = True
-            self._send(415, b"JSON required")
+            self._reject(415, b"JSON required")
             return
         self._proxy("POST", self.rfile.read(length))
 
