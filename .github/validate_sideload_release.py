@@ -5,6 +5,7 @@ This validates the archive actually produced by build_github.sh, rather than
 assuming the asset filename (which is not a bundle identifier) is authoritative.
 """
 import argparse
+import hashlib
 import json
 import plistlib
 import re
@@ -85,11 +86,30 @@ def inspect_source(source_path: Path, expected_bundle_id: str, expected_version:
     print(f"OK: {source_path}: {expected_bundle_id} {expected_version}, published asset={url}")
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def inspect_alias(alias_path: Path, sidestore_path: Path) -> None:
+    if alias_path.name != EXPECTED_BUNDLE_ID + ".ipa":
+        raise ValueError("URL-safe alias basename must match CFBundleIdentifier")
+    if not alias_path.is_file() or alias_path.stat().st_size != sidestore_path.stat().st_size:
+        raise ValueError("URL-safe alias is missing or differs in size from embedded SideStore IPA")
+    if sha256_file(alias_path) != sha256_file(sidestore_path):
+        raise ValueError("URL-safe alias differs in bytes from embedded SideStore IPA")
+    print(f"OK: {alias_path.name} is a byte-identical URL-safe alias")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--standard", type=Path, required=True)
     parser.add_argument("--sidestore", type=Path, required=True)
     parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--alias", type=Path, required=True)
     args = parser.parse_args()
     try:
         standard_id, standard_version = inspect_ipa(args.standard, expect_embedded_sidestore=False)
@@ -97,6 +117,7 @@ def main() -> int:
         if (standard_id, standard_version) != (sidestore_id, sidestore_version):
             raise ValueError("Standard and embedded-SideStore IPA version/identifier differ")
         inspect_source(args.source, sidestore_id, sidestore_version)
+        inspect_alias(args.alias, args.sidestore)
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, plistlib.InvalidFileException) as exc:
         print(f"ERROR: release package validation failed: {exc}", file=sys.stderr)
         return 1
