@@ -81,7 +81,9 @@ The [October 21, 2026 test release](https://github.com/thelabcorner/LiveContaine
 
 **Avoid pasting the GitHub IPA link into SideStore's "Install from URL" dialog.** SideStore 0.7.0's remote URL installer derives the expected bundle ID from the filename, resulting in an incorrect `LiveContainer+SideStore` identity and an installation verification error. Source-based and local-file installation supply the real `com.kdt.livecontainer` identifier instead.
 
-**For subsequent builds**, the packaging workflow will also publish a byte-identical `com.kdt.livecontainer.ipa` alias of `LiveContainer+SideStore.ipa`; that URL-safe filename matches SideStore\'s remote-import bundle ID heuristic. The existing October 21 tagged release does **not** contain that alias.\n\nThis is a **test build**. CI packaging has run, but installation and launcher behavior on a physical device have not been verified. Installing over an existing `com.kdt.livecontainer` app can replace that app rather than creating another copy; preserve your app data and avoid uninstalling existing LiveContainer instances to work around a source mismatch.
+**For subsequent builds**, the packaging workflow will also publish a byte-identical `com.kdt.livecontainer.ipa` alias of `LiveContainer+SideStore.ipa`; that URL-safe filename matches SideStore's remote-import bundle ID heuristic. The existing October 21 tagged release does **not** contain that alias.
+
+This is a **test build**. CI packaging has run, but installation and launcher behavior on a physical device have not been verified. Installing over an existing `com.kdt.livecontainer` app can replace that app rather than creating another copy; preserve your app data and avoid uninstalling existing LiveContainer instances to work around a source mismatch.
 
 ## Requirements
 
