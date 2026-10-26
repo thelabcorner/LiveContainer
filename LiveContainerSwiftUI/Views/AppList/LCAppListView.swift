@@ -72,6 +72,7 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
     @State private var isNavigationActive = false
     
     @State private var helpPresent = false
+    @State private var sideTapAppPresent = false
     
     @State private var customSortViewPresent = false
     
@@ -235,6 +236,7 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     if(UserDefaults.sideStoreExist()) {
+                        HStack(spacing: 10) {
                         Button {
                             LCUtils.openSideStore(delegate: self)
                         } label: {
@@ -253,6 +255,20 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                             } label: {
                                 Label("lc.appBanner.addToHomeScreen".loc, systemImage: "plus.app")
                             }
+                        }
+                        Button {
+                            sideTapAppPresent = true
+                        } label: {
+                            Image("SideTap")
+                                .resizable()
+                                .interpolation(.high)
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+                                       height: UIFont.preferredFont(forTextStyle: .body).lineHeight)
+                                .clipShape(RoundedRectangle(cornerRadius: 5))
+                        }
+                        .accessibilityLabel("SideTap")
+                        .accessibilityHint("Open the SideTap app")
                         }
                     } else {
                         Button("Help", systemImage: "questionmark") {
@@ -403,6 +419,9 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
         }
         .sheet(isPresented: $helpPresent) {
             LCHelpView(isPresent: $helpPresent)
+        }
+        .fullScreenCover(isPresented: $sideTapAppPresent) {
+            SideTapAppView(isPresented: $sideTapAppPresent)
         }
         .sheet(isPresented: $customSortViewPresent) {
             LCCustomSortView()

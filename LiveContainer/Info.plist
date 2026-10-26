@@ -172,7 +172,7 @@
 	<key>NSIdentityUsageDescription</key>
 	<string>The guest app is requesting for this permission.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>The guest app is requesting for this permission.</string>
+	<string>Connect to your paired SideTap companion on the local workstation, or to guest apps on your network.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>The guest app is requesting for this permission.</string>
 	<key>NSLocationDefaultAccuracyReduced</key>

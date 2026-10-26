@@ -7,6 +7,10 @@ on:
   pull_request:
     paths:
       - "SideTapIntegration/**"
+      - "LiveContainer/Info.plist"
+      - "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift"
+      - "LiveContainerSwiftUI/Views/AppList/SideTapAppView.swift"
+      - "Resources/Assets.xcassets/SideTap.imageset/**"
       - "scripts/stage_sidetap_wda_research.py"
       - "scripts/validate_sidetap_bundle.py"
       - "tests/test_sidetap*"
@@ -27,7 +31,7 @@ jobs:
       - name: Install test runner
         run: python -m pip install --disable-pip-version-check pytest
       - name: Offline one-slot archive and staging invariants
-        run: python -m pytest -q tests/test_sidetap_bundle_validator.py tests/test_sidetap_wda_staging.py
+        run: python -m pytest -q tests/test_sidetap_bundle_validator.py tests/test_sidetap_wda_staging.py tests/test_sidetap_app_structure.py
 
   sidetap-source-tests:
     runs-on: ubuntu-latest
@@ -43,7 +47,7 @@ jobs:
           python-version: "3.12"
       - name: Install official SideTap dependencies and pytest
         run: python -m pip install --disable-pip-version-check -r ../requirements-ci.txt
-      - name: Run unmodified upstream regression tests plus CoreDevice tests
+      - name: Run pinned upstream SideTap suite and forked CoreDevice/companion regressions
         run: python -m pytest -q tests
 
 # These jobs intentionally never sign, install, launch XCTest on, or modify a phone.

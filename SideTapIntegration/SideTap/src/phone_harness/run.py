@@ -8,6 +8,7 @@ Usage:
   phone-harness up              # start tunnel + WDA + port forwards
   phone-harness down            # stop them
   phone-harness view            # live viewer web page (click = tap)
+  phone-harness companion       # explicit TLS-paired SideTap iOS UI over LAN
   phone-harness mcp             # MCP server over stdio, e.g.:
                                 #   claude mcp add sidetap \
                                 #     --env PYTHONPATH=<repo>/src -- python -m phone_harness mcp
@@ -104,6 +105,10 @@ def main(argv: list[str] | None = None) -> int:
         from . import coredevice
         print(coredevice.direct_status())
         return 0
+    if cmd == "companion":
+        # Never starts from MCP import or phone-harness view; human opt-in only.
+        from . import companion
+        return companion.main(args[1:])
     if cmd == "mcp":
         try:
             from . import mcp_server
