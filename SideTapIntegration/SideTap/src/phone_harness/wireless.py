@@ -81,6 +81,9 @@ def status() -> dict:
         "pinned": bool(selected),
         "ready": False,
         "verified_network_device": False,
+        "coredevice_service_ready": False,
+        "untethered": False,
+        "usb_attached": False,
         "wda_ui_tree": False,
         "additional_app_slot_needed_for_coredevice": False,
     }
@@ -104,15 +107,55 @@ def status() -> dict:
         if selected not in verified:
             result["reason"] = "Wi-Fi device did not answer paired lockdown"
             return result
+        result["verified_network_device"] = True
+        # A network entry does not prove the CoreDevice tunnel will avoid USB.
+        # In strict Wi-Fi mode, require the selected phone to be unplugged.
+        usb = _udids(_run(["usbmux", "list", "--usb", "--simple"]))
+        result["usb_attached"] = selected in usb
+        if result["usb_attached"]:
+            result["reason"] = (
+                "Paired Wi-Fi lockdown answered, but this iPhone is also attached "
+                "by USB. Unplug it to prove untethered operation."
+            )
+            return result
     except WirelessError as exc:
         result["reason"] = str(exc)
         return result
     result.update(
         ready=True,
         verified_network_device=True,
-        reason="Paired Wi-Fi lockdown answered; CoreDevice control may be attempted",
+        untethered=True,
+        reason="Paired network lockdown answered without USB; CoreDevice service not yet checked",
     )
     return result
+
+
+def control_status() -> dict:
+    """Probe a read-only developer service across an actual RSD tunnel.
+
+    This does not prove touchscreen HID delivery, which can only be confirmed
+    by an explicitly requested gesture on the actual device.
+    """
+    probe = status()
+    if not probe["ready"]:
+        return probe
+    selected = str(config.SIDETAP_UDID)
+    try:
+        display = _run(
+            ["developer", "core-device", "get-display-info",
+             "--userspace", f"--udid={selected}"],
+            timeout=25,
+        )
+        if not isinstance(display, dict) or not display:
+            raise WirelessError("CoreDevice returned no structured display information")
+    except WirelessError as exc:
+        probe["reason"] = "Wi-Fi lockdown available, but CoreDevice RSD is not: " + str(exc)
+        return probe
+    probe.update(
+        coredevice_service_ready=True,
+        reason="Paired Wi-Fi and CoreDevice RSD responded without USB; HID delivery untested",
+    )
+    return probe
 
 
 def require_wifi() -> str:
@@ -158,4 +201,4 @@ def discovery() -> dict:
 
 def wireless_status() -> dict:
     """Read-only MCP tool. Never enables a service or changes the phone."""
-    return status()
+    return control_status()
