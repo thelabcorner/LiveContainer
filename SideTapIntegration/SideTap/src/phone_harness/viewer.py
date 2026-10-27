@@ -727,7 +727,7 @@ class Handler(BaseHTTPRequestHandler):
                         png = capture.screenshot_png(max_age=0.4)
                         width, height = _png_size(png)
                         verified = (width > 0 and height > 0 and
-                                    not stop_engaged() and wireless.status()["ready"])
+                                    not stop_engaged() and wireless.control_status()["coredevice_service_ready"])
                         window = {"width": width, "height": height} if width and height else None
                     except Exception:
                         verified = False
