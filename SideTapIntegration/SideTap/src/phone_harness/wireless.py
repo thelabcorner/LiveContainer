@@ -137,7 +137,10 @@ def control_status() -> dict:
     by an explicitly requested gesture on the actual device.
     """
     probe = status()
-    if not probe["ready"]:
+    probe["lockdown_ready"] = probe["ready"]
+    # A working lockdown session is not yet a working developer-control link.
+    probe["ready"] = False
+    if not probe["lockdown_ready"]:
         return probe
     selected = str(config.SIDETAP_UDID)
     try:
@@ -152,6 +155,7 @@ def control_status() -> dict:
         probe["reason"] = "Wi-Fi lockdown available, but CoreDevice RSD is not: " + str(exc)
         return probe
     probe.update(
+        ready=True,
         coredevice_service_ready=True,
         reason="Paired Wi-Fi and CoreDevice RSD responded without USB; HID delivery untested",
     )
