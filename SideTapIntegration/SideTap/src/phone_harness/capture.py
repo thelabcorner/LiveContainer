@@ -58,22 +58,46 @@ def _go_ios_screenshot() -> bytes:
             "go-ios not found on PATH. Install it: npm install -g go-ios"
         )
 
+    # iOS 17+ screenshots use a RemoteServiceDiscovery tunnel. Its agent is
+    # *not* guaranteed to be at the go-ios default: SideTap keeps a dedicated
+    # low-port agent (GO_IOS_AGENT_PORT), particularly on Windows/Hyper-V.
+    # Always use the configured local agent explicitly, rather than relying
+    # on an inherited environment from an unrelated caller or OXP process.
+    try:
+        tunnel_port = int(config.GO_IOS_AGENT_PORT)
+    except (ValueError, TypeError) as exc:
+        raise CaptureError("Invalid GO_IOS_AGENT_PORT") from exc
+    if not 1 <= tunnel_port <= 65535:
+        raise CaptureError("GO_IOS_AGENT_PORT must be a valid TCP port")
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "shot.png"
-        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        proc = subprocess.run(
-            [exe, *device.pin_udid(["screenshot", "--output", str(out)])],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            creationflags=flags,
-        )
-        if not out.exists() or out.stat().st_size == 0:
-            raise CaptureError(
-                "go-ios screenshot failed. Is the phone unlocked and the developer "
-                f"image mounted? Detail: {proc.stderr.strip()[-300:]}"
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+        args = ["screenshot", "--output", str(out), f"--tunnel-info-port={tunnel_port}"]
+        try:
+            proc = subprocess.run(
+                [exe, *device.pin_udid(args)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                creationflags=flags,
             )
-        return out.read_bytes()
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise CaptureError("go-ios screenshot timed out or failed to start") from exc
+        if proc.returncode:
+            raise CaptureError("go-ios tunnel/screenshot failed: " + (proc.stderr or proc.stdout).strip()[-300:])
+        if not out.is_file():
+            raise CaptureError("go-ios reported success but created no screenshot file")
+        png = out.read_bytes()
+        # Reject success-shaped failures and truncated files before populating
+        # the global frame cache or exposing a misleading 'live phone' view.
+        if (len(png) < 45 or png[:8] != b"\x89PNG\r\n\x1a\n"
+                or png[8:16] != b"\x00\x00\x00\x0dIHDR"
+                or png[-12:] != b"\x00\x00\x00\x00IEND\xaeB\x60\x82"):
+            raise CaptureError("go-ios returned incomplete or non-PNG screenshot content")
+        width, height = __import__("struct").unpack(">II", png[16:24])
+        if not (0 < width <= 16384 and 0 < height <= 16384):
+            raise CaptureError("go-ios screenshot dimensions are invalid")
+        return png
 
 
 def screenshot_png(max_age: float = 0.0) -> bytes:  # noqa: vulture  (called from viewer.py/mcp_server.py)
