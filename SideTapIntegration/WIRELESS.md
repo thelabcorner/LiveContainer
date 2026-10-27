@@ -1,3 +1,32 @@
+## Further screenshot efficiency and real-time video gate (October 27, 2026)
+
+Changes beyond persistent DVT setup:
+
+- Concurrent requests from multiple viewers targeting the same pinned iPhone
+  now share one in-flight frame, rather than serially requesting duplicates.
+- The viewer now has only one initial screenshot request rather than its
+  historical double load. Hidden tabs stop screenshot polling. Repeated
+  failures back off to a maximum of 15 seconds and reset immediately on
+  success or foreground return; STOP/approval checks remain active.
+- An explicit, read-only wireless-media-status CLI probes the separate
+  CoreDevice display media-service capabilities and stream-server status
+  on a verified network-only target. It never starts a stream or claims
+  an available input device. When usbmux cannot enumerate the iPhone,
+  the command correctly returns lockdown_ready=false instead of a
+  false-positive HEVC/video result.
+
+pymobiledevice3 documents CoreDevice display serve-web and
+start-video-stream (HEVC). Unlike repeated full-resolution DVT PNGs, a
+continuous stream could provide fluid viewing if the physical iOS 18.7.7
+device supports that service. Existing screen-capture and HID probes failed,
+so each service must be independently verified rather than inferred.
+https://doronz88.github.io/pymobiledevice3/guides/cli-recipes/
+
+The final source revision still awaits a live unplugged frame-rate benchmark:
+the phone has been visible intermittently via Bonjour but the Windows
+usbmux network enumeration currently reports no device, and the userspace
+RSD factory needs usbmux. Do not claim a working stream, video FPS, or touch.
+
 ## Persistent screenshot optimization — October 27, 2026
 
 Measured on the actual iPhone: first-time RSD establishment takes about

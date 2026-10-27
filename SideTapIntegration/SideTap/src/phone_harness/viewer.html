@@ -425,7 +425,7 @@
     </div>
     <div id="screen-slot">
       <div id="screen-wrap">
-        <img id="screen" alt="phone screen" src="/api/screenshot">
+        <img id="screen" alt="phone screen">
         <div id="tap-dot"></div>
         <div id="hold-ring"></div>
         <div id="swipe-echo"></div>
@@ -709,10 +709,12 @@ async function reportNotSent(resp, what) {
 
 // WDA's MJPEG server pushes ~15fps video; polling go-ios PNGs is the fallback.
 function startStream(port) {
-  if (streaming) return;
+  if (streaming || document.hidden) return;
+  clearTimeout(stillTimer);
+  stillTimer = null;
   streaming = true;
   screen.onload = null;
-  screen.onerror = () => { streaming = false; setTimeout(poll, 500); };
+  screen.onerror = () => { streaming = false; scheduleStill(500); };
   screen.src = 'http://' + location.hostname + ':' + port + '/';
 }
 
@@ -797,10 +799,29 @@ async function loadStatus() {
   }
 }
 
-// Refresh the still image one request at a time (never overlapping).
+// Refresh the still image one request at a time. Screenshots are expensive
+// over RSD, so never retry in a hidden tab or storm a disconnected iPhone.
+let stillTimer = null;
+let stillFailures = 0;
+function scheduleStill(delay) {
+  clearTimeout(stillTimer);
+  if (document.hidden || streaming) return;
+  stillTimer = setTimeout(() => { stillTimer = null; poll(); }, delay);
+}
 function poll() {
-  if (streaming) return;
-  screen.onload = screen.onerror = () => { if (!streaming) setTimeout(poll, 900); };
+  if (streaming || document.hidden) return;
+  clearTimeout(stillTimer);
+  stillTimer = null;
+  screen.onload = () => {
+    stillFailures = 0;
+    scheduleStill(900);
+  };
+  screen.onerror = () => {
+    stillFailures = Math.min(stillFailures + 1, 5);
+    // 1.8, 3.6, 7.2, 14.4, 15 seconds, capped. A real successful image
+    // resets immediately to 900ms cadence.
+    scheduleStill(Math.min(15000, 900 * (2 ** stillFailures)));
+  };
   screen.src = '/api/screenshot?t=' + Date.now();
 }
 
@@ -1080,11 +1101,14 @@ window.addEventListener('load', () => {
 // purpose: the send-approval gate must stay armed while the tab is hidden.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    clearTimeout(stillTimer);
+    stillTimer = null;
     screen.onload = null;
     screen.onerror = null;
     screen.src = '';
     streaming = false;
   } else {
+    stillFailures = 0;  // user returned; try the phone immediately
     // Instant restore, not a wait for the next poll tick. poll() waits for
     // loadStatus (which never rejects) because it is async: run bare, it saw
     // `streaming` still false and fetched a /api/screenshot still frame —

@@ -197,6 +197,47 @@ def control_status() -> dict:
     return probe
 
 
+def media_capabilities() -> dict:
+    """Read-only evidence for HEVC streaming, independent of DVT screenshots.
+
+    A successful DVT PNG does not establish that the separate CoreDevice
+    display/HEVC service exists on this iOS version. Do not launch serve-web
+    or create a port; probe service metadata only. Every probe is pinned to
+    the same verified network-only device.
+    """
+    state = status()
+    result = {
+        "transport": mode(),
+        "lockdown_ready": state["ready"],
+        "media_service_ready": False,
+        "stream_status_ready": False,
+        "video_stream_verified": False,
+        "reason": state.get("reason", "Wi-Fi not verified"),
+    }
+    if not state["ready"]:
+        return result
+    for key, command in (
+        ("media_service_ready", "get-media-support-info"),
+        ("stream_status_ready", "get-media-stream-server-status"),
+    ):
+        try:
+            data = _run(
+                ["developer", "core-device", "display", command, "--userspace"],
+                timeout=25,
+            )
+            if not isinstance(data, dict) or not data:
+                raise WirelessError("Display service returned no structured response")
+            result[key] = True
+        except WirelessError as exc:
+            result["reason"] = "Display media service unavailable: " + str(exc)
+            return result
+    result["reason"] = (
+        "Display media metadata available; continuous HEVC frames and touch "
+        "still require a real device streaming session test"
+    )
+    return result
+
+
 def require_hid() -> str:
     """Demand a live read-only HID-service handshake before any input command."""
     probe = control_status()

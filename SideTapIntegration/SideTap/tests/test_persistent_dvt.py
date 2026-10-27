@@ -77,13 +77,15 @@ def test_concurrent_http_requests_share_one_connection_and_serialize_screenshots
     opened = []
     in_flight = 0
     peak = 0
+    count = 0
     async def fake_open(self, udid):
         opened.append(udid)
         async def shot():
-            nonlocal in_flight, peak
+            nonlocal in_flight, peak, count
+            count += 1
             in_flight += 1
             peak = max(peak, in_flight)
-            await asyncio.sleep(.02)
+            await asyncio.sleep(.06)
             in_flight -= 1
             return b"frame"
         self._selected = udid
@@ -103,6 +105,7 @@ def test_concurrent_http_requests_share_one_connection_and_serialize_screenshots
         assert all(x == b"frame" for x in results)
         assert opened == ["phone-A"]
         assert peak == 1
+        assert count == 1  # concurrent viewers share the same screenshot
     finally:
         worker.close()
 

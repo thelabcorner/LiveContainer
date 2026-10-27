@@ -9,6 +9,7 @@ Usage:
   phone-harness down            # stop them
   phone-harness wireless-status # read-only Wi-Fi transport verification
   phone-harness wireless-discover # compare USB, Wi-Fi usbmux and Bonjour
+  phone-harness wireless-media-status # read-only HEVC/DisplayService probes
   phone-harness wireless-enable --confirm
                                 # enable Wi-Fi via selected trusted USB phone
   phone-harness view            # live viewer web page (click = tap)
@@ -114,6 +115,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if (cmd != "wireless-status" or data["ready"]) else 1
         except wireless.WirelessError as exc:
             print("Wireless unavailable: " + str(exc), file=sys.stderr)
+            return 1
+    if cmd == "wireless-media-status":
+        from . import wireless
+        import json
+        try:
+            result = wireless.media_capabilities()
+            print(json.dumps(result, indent=2))
+            return 0 if result["media_service_ready"] else 1
+        except wireless.WirelessError as exc:
+            print("Wi-Fi media unavailable: " + str(exc), file=sys.stderr)
             return 1
     if cmd == "wireless-enable":
         from . import wireless

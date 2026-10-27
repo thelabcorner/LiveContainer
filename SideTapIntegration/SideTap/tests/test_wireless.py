@@ -419,3 +419,49 @@ def test_no_iphone_bonjour_distinguished_from_daemon_discovery_failure(monkeypat
     state = wireless.discovery()
     assert state["network_discovery_state"] == "no_iphone_bonjour_advertisement"
     assert state["direct_paired_tcp"] is False
+
+
+def test_media_capabilities_never_claims_stream_from_dvt_screen(monkeypatch):
+    wifi_mode(monkeypatch)
+    monkeypatch.setattr(wireless, "status",
+                        lambda: {"ready": True, "reason": "paired Wi-Fi verified"})
+    seen = []
+    def runner(args, timeout=10):
+        seen.append(args)
+        return {"supported": True}
+    monkeypatch.setattr(wireless, "_run", runner)
+    info = wireless.media_capabilities()
+    assert info["media_service_ready"] is True
+    assert info["stream_status_ready"] is True
+    assert info["video_stream_verified"] is False
+    assert len(seen) == 2
+    assert all(args[-1] == "--userspace" for args in seen)
+    assert not any("start-video-stream" in args or "serve-web" in args for args in seen)
+
+
+def test_media_capabilities_stops_before_service_if_no_wifi(monkeypatch):
+    wifi_mode(monkeypatch)
+    monkeypatch.setattr(wireless, "status",
+                        lambda: {"ready": False, "reason": "No selected paired device"})
+    monkeypatch.setattr(wireless, "_run",
+                        lambda *args, **kwargs: pytest.fail("No developer probe without Wi-Fi"))
+    info = wireless.media_capabilities()
+    assert info["lockdown_ready"] is False
+    assert info["media_service_ready"] is False
+    assert info["video_stream_verified"] is False
+
+
+def test_media_capabilities_failed_display_is_not_held_as_success(monkeypatch):
+    wifi_mode(monkeypatch)
+    monkeypatch.setattr(wireless, "status",
+                        lambda: {"ready": True, "reason": "Paired Wi-Fi"})
+    def runner(args, timeout=10):
+        if "get-media-stream-server-status" in args:
+            raise wireless.WirelessError("InvalidService")
+        return {"supported": True}
+    monkeypatch.setattr(wireless, "_run", runner)
+    info = wireless.media_capabilities()
+    assert info["media_service_ready"] is True
+    assert info["stream_status_ready"] is False
+    assert info["video_stream_verified"] is False
+    assert "InvalidService" in info["reason"]

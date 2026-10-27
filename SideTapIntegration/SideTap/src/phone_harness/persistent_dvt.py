@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 from contextlib import AsyncExitStack
-from concurrent.futures import TimeoutError as FutureTimeout
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 import threading
 from typing import Any
 
@@ -32,6 +32,10 @@ class PersistentDvtCapture:
         self._service: Any = None
         self._selected: str | None = None
         self._closed = False
+        # Multiple viewer pages/MCP clients asking for the same moment must
+        # share one DVT response, not queue redundant full-resolution captures.
+        self._pending_guard = threading.Lock()
+        self._pending: dict[str, Future[bytes]] = {}
 
     def _run_loop(self) -> None:
         loop = asyncio.new_event_loop()
@@ -121,11 +125,22 @@ class PersistentDvtCapture:
             raise PersistentCaptureError("A pinned iPhone UDID is required")
         loop = self._ensure_running()
         coro = self._capture(udid)
-        try:
-            submitted = asyncio.run_coroutine_threadsafe(coro, loop)
-        except BaseException:
-            coro.close()
-            raise
+        with self._pending_guard:
+            if self._closed:
+                coro.close()
+                raise PersistentCaptureError("Persistent screenshot capture is closed")
+            submitted = self._pending.get(udid)
+            if submitted is None or submitted.done():
+                try:
+                    submitted = asyncio.run_coroutine_threadsafe(coro, loop)
+                except BaseException:
+                    coro.close()
+                    raise
+                self._pending[udid] = submitted
+            else:
+                # The first caller's request is already in flight; it owns
+                # the result. Close this unused coroutine to avoid warnings.
+                coro.close()
         try:
             data = submitted.result(timeout=timeout)
         except FutureTimeout as exc:
@@ -135,6 +150,10 @@ class PersistentDvtCapture:
             raise PersistentCaptureError(
                 "Persistent wireless DVT capture failed: " + type(exc).__name__
             ) from exc
+        finally:
+            with self._pending_guard:
+                if submitted.done() and self._pending.get(udid) is submitted:
+                    self._pending.pop(udid, None)
         if not isinstance(data, bytes):
             raise PersistentCaptureError("DVT returned a non-bytes image")
         return data

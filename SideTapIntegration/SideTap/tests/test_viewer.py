@@ -2847,3 +2847,15 @@ def test_wifi_viewer_status_rejects_fresh_frame_if_network_disappears(base_url, 
     assert info["window"] is None
     assert info["link"] == "down"
     assert "dropped off LAN" in info["wireless"]["reason"]
+
+
+def test_still_viewer_polling_is_visibility_gated_and_backed_off():
+    html = (Path(viewer.__file__).parent / "viewer.html").read_text(encoding="utf-8")
+    assert "if (streaming || document.hidden) return;" in html
+    assert "clearTimeout(stillTimer);" in html
+    assert "scheduleStill(Math.min(15000, 900 * (2 ** stillFailures)))" in html
+    assert "stillFailures = 0;  // user returned" in html
+    assert "stillFailures = 0;\n    scheduleStill(900);" in html
+    assert "screen.onload = screen.onerror" not in html
+    assert '<img id="screen" alt="phone screen">' in html
+    assert 'src="/api/screenshot"' not in html
