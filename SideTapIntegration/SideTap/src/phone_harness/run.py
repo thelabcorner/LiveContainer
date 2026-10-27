@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         from . import wireless
         import json
         try:
-            data = wireless.status() if cmd == "wireless-status" else wireless.discovery()
+            data = wireless.control_status() if cmd == "wireless-status" else wireless.discovery()
             print(json.dumps(data, indent=2))
             return 0 if (cmd != "wireless-status" or data["ready"]) else 1
         except wireless.WirelessError as exc:
