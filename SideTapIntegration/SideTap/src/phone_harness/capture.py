@@ -10,6 +10,8 @@ Only touch INPUT needs the signed WDA driver.
 
 from __future__ import annotations
 
+import os
+import struct
 import subprocess
 import sys
 import tempfile
@@ -26,7 +28,7 @@ class CaptureError(RuntimeError):
 
 _last_png: bytes | None = None
 _last_at: float = 0.0
-_last_transport: tuple[str, bool] | None = None
+_last_transport: tuple[str, bool, str | None] | None = None
 
 # One sessionless client for GET /screenshot (it never creates a WDA session,
 # so it cannot steal the single session helpers/viewer hold). When WDA is down
@@ -48,6 +50,70 @@ def _wda_screenshot() -> bytes | None:
     except WDAError:
         _wda_dead_until = time.time() + _WDA_RETRY_SECONDS
         return None
+
+
+def _validated_png(png: bytes, source: str) -> bytes:
+    """Validate framing/geometry before treating device output as a live frame."""
+    if (len(png) < 45 or png[:8] != b"\x89PNG\r\n\x1a\n"
+            or png[8:16] != b"\x00\x00\x00\x0dIHDR"
+            or png[-12:] != b"\x00\x00\x00\x00IEND\xaeB\x60\x82"):
+        raise CaptureError(source + " returned incomplete or non-PNG content")
+    width, height = struct.unpack(">II", png[16:24])
+    if not (0 < width <= 16384 and 0 < height <= 16384):
+        raise CaptureError(source + " returned invalid screenshot dimensions")
+    return png
+
+
+def _wifi_dvt_screenshot() -> bytes:
+    """Real DVT screenshot over network-only paired lockdown + userspace RSD.
+
+    Verified physically unplugged on iOS 18.7.7. This bypasses the go-ios
+    userspace-tunnel regression without an IPA, privileged network adapter,
+    or new Apple signing slot. The exact authorized target is pinned.
+    """
+    selected = config.SIDETAP_UDID
+    if not selected:
+        raise CaptureError("A pinned iPhone UDID is required")
+    backend = (config.get("SIDETAP_WIFI_CAPTURE_BACKEND", "persistent") or "").strip().lower()
+    if backend == "persistent":
+        from . import persistent_dvt
+        # PersistentDvtCapture performs the full network-only identity and
+        # USB-detach preflight when its session OPENS or RECONNECTS, not on
+        # every screenshot. A session remains bound to its original transport.
+        try:
+            return _validated_png(persistent_dvt.screenshot(selected), "Persistent DVT")
+        except persistent_dvt.PersistentCaptureError as exc:
+            raise CaptureError(str(exc)) from exc
+    if backend != "subprocess":
+        raise CaptureError("SIDETAP_WIFI_CAPTURE_BACKEND must be persistent or subprocess")
+    try:
+        selected = wireless.require_wifi()
+    except wireless.WirelessError as exc:
+        raise CaptureError("Paired network-only iPhone is unavailable: " + str(exc)) from exc
+    env = os.environ.copy()
+    env["PYMOBILEDEVICE3_UDID"] = selected
+    env.pop("PYMOBILEDEVICE3_TUNNEL", None)
+    env.pop("PYMOBILEDEVICE3_NATIVE", None)
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / "screen.png"
+        cmd = [sys.executable, "-m", "pymobiledevice3", "developer",
+               "dvt", "screenshot", str(out), "--userspace"]
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                timeout=25, env=env,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                if sys.platform == "win32" else 0,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise CaptureError("Wireless DVT screenshot timed out or failed to start") from exc
+        if proc.returncode != 0:
+            raise CaptureError(
+                "Wireless DVT screenshot unavailable: " +
+                (proc.stderr or proc.stdout).strip()[-250:])
+        if not out.is_file():
+            raise CaptureError("Wireless DVT reported success but produced no image")
+        return _validated_png(out.read_bytes(), "Wireless DVT")
 
 
 def _go_ios_screenshot() -> bytes:
@@ -88,16 +154,29 @@ def _go_ios_screenshot() -> bytes:
         if not out.is_file():
             raise CaptureError("go-ios reported success but created no screenshot file")
         png = out.read_bytes()
-        # Reject success-shaped failures and truncated files before populating
-        # the global frame cache or exposing a misleading 'live phone' view.
-        if (len(png) < 45 or png[:8] != b"\x89PNG\r\n\x1a\n"
-                or png[8:16] != b"\x00\x00\x00\x0dIHDR"
-                or png[-12:] != b"\x00\x00\x00\x00IEND\xaeB\x60\x82"):
-            raise CaptureError("go-ios returned incomplete or non-PNG screenshot content")
-        width, height = __import__("struct").unpack(">II", png[16:24])
-        if not (0 < width <= 16384 and 0 < height <= 16384):
-            raise CaptureError("go-ios screenshot dimensions are invalid")
-        return png
+        # Shared strict framing check also protects the network DVT path.
+        return _validated_png(png, "go-ios")
+
+
+def recent_frame_info(max_age: float = 24.0) -> dict | None:
+    """Non-blocking viewer metadata for an authenticated recent screenshot.
+
+    Never spawn a developer service merely to answer /api/status; the page's
+    single-flight /api/screenshot poll owns the expensive DVT capture.
+    """
+    route = (
+        wireless.mode(), config.get("SIDETAP_DIRECT_ENABLE", "0") == "1",
+        config.SIDETAP_UDID if wireless.mode() == "wifi" else None,
+    )
+    if (_last_png is None or route != _last_transport or
+            (time.time() - _last_at) > max_age or _last_at > time.time()):
+        return None
+    try:
+        img = _validated_png(_last_png, "Cached")
+        width, height = struct.unpack(">II", img[16:24])
+    except CaptureError:
+        return None
+    return {"width": width, "height": height, "age": max(0.0, time.time() - _last_at)}
 
 
 def screenshot_png(max_age: float = 0.0) -> bytes:  # noqa: vulture  (called from viewer.py/mcp_server.py)
@@ -107,16 +186,23 @@ def screenshot_png(max_age: float = 0.0) -> bytes:  # noqa: vulture  (called fro
     which keeps the viewer smooth without hammering the device.
     """
     global _last_png, _last_at, _last_transport
-    route = (wireless.mode(), config.get("SIDETAP_DIRECT_ENABLE", "0") == "1")
+    selected_transport = wireless.mode()
+    route = (
+        selected_transport, config.get("SIDETAP_DIRECT_ENABLE", "0") == "1",
+        config.SIDETAP_UDID if selected_transport == "wifi" else None,
+    )
     if (max_age and _last_png is not None and _last_transport == route
             and (time.time() - _last_at) < max_age):
         return _last_png
 
-    if route == ("wifi", True):
-        # Never mix an unrelated/stale WDA frame with coordinates going to
-        # the explicitly pinned CoreDevice Wi-Fi phone.
-        wireless.require_wifi()
-        png = _go_ios_screenshot()
+    if selected_transport == "wifi":
+        if route[1]:
+            # WDA-free viewer: never borrow a WDA image from another session.
+            png = _wifi_dvt_screenshot()
+        else:
+            png = _wda_screenshot()
+            if png is None:
+                png = _wifi_dvt_screenshot()
     else:
         png = _wda_screenshot()
         if png is None:

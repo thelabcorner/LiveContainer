@@ -2739,20 +2739,27 @@ def test_wifi_wda_path_preserved_when_direct_hid_disabled(base_url, monkeypatch)
     assert ("tap", 30.0, 40.0) in viewer.Handler.client.calls
 
 
-def test_wifi_viewer_status_advertises_only_verified_input(base_url, monkeypatch):
-    import struct
+def test_wifi_viewer_status_shows_capture_but_never_claims_unverified_hid(base_url, monkeypatch):
     monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
                         "wifi" if key == "SIDETAP_TRANSPORT" else
                         "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
-    screenshot = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", 200, 400)
-    monkeypatch.setattr(viewer.capture, "screenshot_png", lambda max_age=0: screenshot)
-    monkeypatch.setattr(viewer.wireless, "control_status", lambda: {"ready": True, "coredevice_service_ready": True})
-    monkeypatch.setattr(viewer, "stop_engaged", lambda: False)
+    monkeypatch.setattr(viewer.wireless, "status", lambda: {"ready": True})
+    monkeypatch.setattr(viewer.capture, "recent_frame_info",
+                        lambda: {"width": 200, "height": 400, "age": 1.5})
+    monkeypatch.setattr(viewer.capture, "screenshot_png",
+                        lambda *a, **k: pytest.fail("status must not launch DVT capture"))
+    monkeypatch.setattr(viewer.wireless, "control_status",
+                        lambda: pytest.fail("status must not invoke expensive HID probe"))
     r = requests.get(base_url + "/api/status", timeout=5)
     assert r.status_code == 200
-    assert r.json()["input"] is True
-    assert r.json()["window"] == {"width": 200, "height": 400}
-    assert r.json()["link"] == "wifi-coredevice"
+    info = r.json()
+    assert info["input"] is False
+    assert info["window"] == {"width": 200, "height": 400}
+    assert info["link"] == "wifi-capture"
+    assert info["wireless"]["capture"] is True
+    assert info["wireless"]["hid"] is False
+    assert info["wireless"]["frame_age"] == 1.5
+
 
 def test_wifi_direct_refuses_wda_only_actions(base_url, monkeypatch):
     monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
@@ -2809,39 +2816,34 @@ def test_wifi_viewer_never_pretends_placeholder_is_a_live_screenshot(base_url, m
     assert response.json()["ok"] is False
     assert "screen capture is unavailable" in response.json()["error"]
 
-def test_wifi_viewer_status_requires_hid_not_only_display_metadata(base_url, monkeypatch):
-    from unittest.mock import Mock
+def test_wifi_viewer_status_no_frame_does_not_claim_live_capture(base_url, monkeypatch):
     monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
                         "wifi" if key == "SIDETAP_TRANSPORT" else
                         "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
-    screenshot = Mock(side_effect=AssertionError("No screenshot attempt without HID"))
-    monkeypatch.setattr(viewer.capture, "screenshot_png", screenshot)
-    monkeypatch.setattr(viewer.wireless, "control_status", lambda: {
-        "ready": False,
-        "coredevice_service_ready": True,
-        "hid_service_ready": False,
-        "reason": "HID not provided by iOS 18",
-    })
+    monkeypatch.setattr(viewer.wireless, "status",
+                        lambda: {"ready": True, "reason": "Wi-Fi lockdown available"})
+    monkeypatch.setattr(viewer.capture, "recent_frame_info", lambda: None)
+    monkeypatch.setattr(viewer.capture, "screenshot_png",
+                        lambda max_age=0: pytest.fail("No blocking screenshot in status"))
     response = requests.get(base_url + "/api/status", timeout=5)
     assert response.status_code == 200
     info = response.json()
     assert info["transport"] == "wifi-coredevice"
     assert info["input"] is False and info["window"] is None
-    assert info["wireless"]["reason"] == "HID not provided by iOS 18"
-    screenshot.assert_not_called()
+    assert info["wireless"]["capture"] is False
+    assert info["link"] == "down"
 
 
-def test_wifi_viewer_status_requires_image_even_if_hid_available(base_url, monkeypatch):
+def test_wifi_viewer_status_rejects_fresh_frame_if_network_disappears(base_url, monkeypatch):
     monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
                         "wifi" if key == "SIDETAP_TRANSPORT" else
                         "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
-    monkeypatch.setattr(viewer.wireless, "control_status", lambda: {
-        "ready": True,
-        "hid_service_ready": True,
-        "reason": "HID available",
-    })
-    monkeypatch.setattr(viewer.capture, "screenshot_png",
-                        lambda max_age=0: (_ for _ in ()).throw(RuntimeError("No screenshot")))
+    monkeypatch.setattr(viewer.wireless, "status",
+                        lambda: {"ready": False, "reason": "Paired iPhone dropped off LAN"})
+    monkeypatch.setattr(viewer.capture, "recent_frame_info",
+                        lambda: pytest.fail("Stale image must not be marked live"))
     info = requests.get(base_url + "/api/status", timeout=5).json()
     assert info["input"] is False
-    assert info["wireless"]["reason"] == "Phone screenshot service unavailable"
+    assert info["window"] is None
+    assert info["link"] == "down"
+    assert "dropped off LAN" in info["wireless"]["reason"]

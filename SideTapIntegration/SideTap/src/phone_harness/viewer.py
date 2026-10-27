@@ -730,36 +730,36 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 }
                 if _wireless_direct_selected():
-                    # A real RSD metadata response is NOT enough. The device
-                    # currently exposes display-info but rejects the HID
-                    # service. Check HID first: do not spend a second 30s
-                    # screenshot timeout on every 5s status poll in that case.
+                    # Capture and HID are independent services. DVT screenshots
+                    # now work through paired Wi-Fi on iOS 18.7.7 even though
+                    # universal-hid-service returns InvalidService. Never make
+                    # screen viewing contingent on the unrelated HID endpoint.
+                    # Do not launch an 11-second screenshot inside status;
+                    # the existing single-flight image poll owns capture.
                     try:
-                        capability = wireless.control_status()
+                        transport = wireless.status()
                     except Exception:
-                        capability = {"ready": False, "reason": "Wi-Fi service probe failed"}
-                    verified = False
-                    window = None
-                    if capability.get("ready") and not stop_engaged():
-                        try:
-                            width, height = _png_size(capture.screenshot_png(max_age=0.4))
-                            if width > 0 and height > 0:
-                                window = {"width": width, "height": height}
-                                verified = True
-                            else:
-                                capability = {**capability, "reason": "No valid phone screenshot"}
-                        except Exception:
-                            capability = {**capability, "reason": "Phone screenshot service unavailable"}
+                        transport = {"ready": False, "reason": "Wi-Fi discovery failed"}
+                    frame = capture.recent_frame_info() if transport.get("ready") else None
+                    # Input stays denied: even a current screenshot plus
+                    # CoreDevice display metadata cannot establish HID. The
+                    # POST input route still requires live HID proof.
+                    reason = (
+                        "Paired Wi-Fi screen capture active; HID touch is not verified"
+                        if frame else
+                        transport.get("reason", "Wireless screenshot not yet available")
+                    )
                     self._json({
                         **fresh,
                         "starting": False,
                         "setup_done": True,
                         "transport": "wifi-coredevice",
-                        "wireless": {"ready": verified,
-                                     "reason": capability.get("reason", "Wi-Fi input not ready")},
-                        "window": window,
-                        "input": verified,
-                        "link": "wifi-coredevice" if verified else "down",
+                        "wireless": {"ready": bool(frame), "capture": bool(frame),
+                                     "hid": False, "reason": reason,
+                                     "frame_age": frame["age"] if frame else None},
+                        "window": {"width": frame["width"], "height": frame["height"]} if frame else None,
+                        "input": False,
+                        "link": "wifi-capture" if frame else "down",
                         "mjpeg": None,
                         "lan_exposed": _LAN_STATE["exposed"],
                         "boot": _BOOT_ID,

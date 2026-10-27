@@ -1,3 +1,99 @@
+## Persistent screenshot optimization — October 27, 2026
+
+Measured on the actual iPhone: first-time RSD establishment takes about
+3.0 seconds, DVT channel establishment 0.4 seconds, and successive screenshot
+response times on a reused tunnel were 1.0, 2.6, and 2.6 seconds.
+The 10+ second UI delay predominantly comes from creating a new userspace
+tunnel, DVT provider and screenshot channel per subprocess, compounded by
+repeated device discovery.
+
+The new SideTap persistent_dvt.py retains one authenticated, UDID-pinned
+userspace RSD tunnel and DVT screenshot channel on a dedicated asyncio loop.
+It serializes concurrent captures, tears down invalid connections, refuses
+cross-device sessions, and rechecks the actual network-only transport on
+each connection/reconnection (rather than every frame). The standard
+Wi-Fi capture backend is now persistent; the old subprocess mode remains
+an explicit compatibility fallback via SIDETAP_WIFI_CAPTURE_BACKEND.
+
+The first persistent prototype captured three real full-size iPhone frames
+in 11.3, 6.1 and 5.6 seconds, but still performed a full network preflight
+on each image. Source changes removed that redundant per-frame preflight,
+and the complete test suite passed 640 tests with one skipped. Before those
+changes could be physically re-benchmarked, the phone ran out of power;
+it is back on Wi-Fi, with genuine Bonjour and authenticated paired TCP,
+but Apple's Windows usbmux currently does not enumerate its network entry.
+The upstream UserspaceRsdTunnel factory requires usbmux. Therefore, do NOT
+assert that final optimized per-frame performance is already proven.
+
+Porting to Rust through PyO3/maturin is possible, but premature: Python
+startup and tunnel re-establishment are separate from intrinsic Python
+execution cost. Benchmark connection reuse, DVT roundtrip, phone image
+encoding and the userspace TCP stack first.
+
+# October 27, 2026: verified untethered screen capture (supersedes older notes below)
+
+**The physical Wi-Fi connection works.** With USB device enumeration empty,
+Windows Apple Mobile Device Service discovered the pinned iPhone as a Network
+device. Independent Bonjour discovery resolved the same phone to
+192.168.1.7, and a direct paired lockdown connection over TCP succeeded.
+Developer Mode and the developer image were already enabled.
+
+**Why removing USB appeared to disconnect everything:** A phone can be
+advertised on both transports while connected by cable. A developer tunnel
+established *through USB* stops working when that USB link disappears. The
+go-ios userspace agent may remain listening but have no active per-device
+tunnel; it does not seamlessly migrate its connection to Wi-Fi. We
+reproduced that behavior with no cable and a directly reachable iPhone:
+the go-ios agent stayed at "Tunnel server started" and showed no tunnel,
+while pymobiledevice3 userspace CoreDevice display queries succeeded.
+See the independently reported Windows case:
+https://github.com/danielpaulus/go-ios/issues/779
+
+A separate intermittent discovery problem can also occur: the phone may
+advertise by Bonjour while Windows Apple Mobile Device Service has not yet
+re-enumerated it, or it may stop advertising temporarily while sleeping.
+The new read-only SideTap wireless-discover command independently checks
+Bonjour, the Apple usbmux Network listing, and direct paired TCP to the
+exact configured device identifier. These checks differentiate the daemon
+missing an announcement from an unreachable iPhone. Do not reinstall
+drivers or toggle pairing credentials when Bonjour and paired TCP work.
+
+**Working workaround:** The DVT screenshot developer service, accessed by
+pymobiledevice3 using userspace RSD over Wi-Fi, successfully returned a
+genuine 1284 x 2778 PNG from the actual unplugged iPhone. SideTap's
+capture.py now selects that service in explicit Wi-Fi mode instead of the
+go-ios screenshot command. No WDA app, new IPA, signing slot, privileged
+network adapter, or cable is necessary for this screenshot-only path.
+
+**Important limitations:** One real capture took approximately 11 seconds
+including process and tunnel startup. This is a slow but legitimate preview,
+not a smooth high-fps video stream. The iPhone currently rejects the
+CoreDevice Universal HID service, so tap, drag and keyboard control are
+NOT yet working wirelessly. The viewer intentionally advertises capture
+and input as independent capabilities; it never enables input solely
+because a screenshot or display metadata is available.
+
+A manual kernel Wi-Fi tunnel command was also attempted. It searches the
+older RemotePairing service and returned no tunnel service; that does not
+contradict the successful iOS 18 CoreDeviceProxy userspace connection.
+These are distinct protocol routes. Preserve the existing signed WDA
+semantics where a separate real WDA tunnel and runner are available.
+
+On this Windows host the classic Apple Mobile Device Service is already
+installed and working: do not replace drivers, disable the firewall or
+create an extra app installation. A future persistent screenshot
+connection should address frame latency separately.
+
+References:
+- https://doronz88.github.io/pymobiledevice3/guides/troubleshooting/
+- https://doronz88.github.io/pymobiledevice3/guides/ios17-tunnels/
+- https://doronz88.github.io/pymobiledevice3/api/dvt/
+- https://github.com/danielpaulus/go-ios/issues/779
+
+---
+**Historical engineering notes below** include earlier pre-DVT
+investigations and are superseded by the verified results above.
+
 ## Critical transport audit (2026-10-26)
 
 **Do not treat Wi-Fi lockdown discovery as proof that the HID command uses Wi-Fi.** After reviewing the actual `pymobiledevice3` implementation, the current `coredevice.py` calls `universal-hid-service ... --userspace` with `PYMOBILEDEVICE3_UDID`. In pymobiledevice3 11.45, the no-root userspace factory starts with `create_using_usbmux(serial=...)` and does not explicitly force the network connection type. A UDID chooses a device identity; it does *not* establish the route. This is an outstanding correctness gap in the wireless branch until the cable is unplugged and a real CoreDevice request succeeds.

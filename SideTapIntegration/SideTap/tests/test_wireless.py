@@ -187,13 +187,15 @@ def test_wifi_capture_never_reads_other_wda_session(monkeypatch):
     wifi_frame = Mock(return_value=b"verified-wifi-pixels")
     old_wda = Mock(side_effect=AssertionError("WDA must not be used in Wi-Fi direct mode"))
     monkeypatch.setattr(capture.wireless, "require_wifi", trusted)
-    monkeypatch.setattr(capture, "_go_ios_screenshot", wifi_frame)
+    monkeypatch.setattr(capture, "_wifi_dvt_screenshot", wifi_frame)
     monkeypatch.setattr(capture, "_wda_screenshot", old_wda)
     frame = capture.screenshot_png(max_age=20)
     assert frame == b"verified-wifi-pixels"
     old_wda.assert_not_called()
     wifi_frame.assert_called_once()
-    trusted.assert_called_once()
+    # The real _wifi_dvt_screenshot executes the verified Wi-Fi preflight;
+    # this test stubs that entire backend to isolate screenshot provenance.
+    trusted.assert_not_called()
 
 def test_wireless_enable_accepts_empty_successful_cli_output(monkeypatch):
     proc = subprocess.CompletedProcess([], 0, "", "")
@@ -374,3 +376,46 @@ def test_failed_coredevice_service_gets_precise_short_error(monkeypatch):
     monkeypatch.setattr(wireless.subprocess, "run", lambda *args, **kw: fake)
     with pytest.raises(wireless.WirelessError, match="Device rejected the requested CoreDevice service"):
         wireless._run(["developer", "core-device", "universal-hid-service", "list-connected", "--userspace"])
+
+def test_bonjour_direct_paired_tcp_survives_missing_apple_usbmux_wifi_entry(monkeypatch):
+    wifi_mode(monkeypatch)
+    calls = []
+    def probe(args, timeout=10):
+        calls.append(args)
+        if args[:2] == ["bonjour", "mobdev2"]:
+            return [{"UniqueDeviceID": "selected-phone"}]
+        if args[:2] == ["lockdown", "info"]:
+            return {"UniqueDeviceID": "selected-phone",
+                    "BasebandSerialNumber": "never echo this"}
+        return []
+    monkeypatch.setattr(wireless, "_run", probe)
+    data = wireless.discovery()
+    assert data["pin_matches_bonjour"] is True
+    assert data["pin_matches_wifi"] is False
+    assert data["direct_paired_tcp"] is True
+    assert data["network_discovery_state"] == "paired_tcp_ok_apple_usbmux_missed_wifi"
+    assert "BasebandSerialNumber" not in str(data)
+    assert ["lockdown", "info", "--mobdev2", "--udid=selected-phone"] in calls
+    assert not any("wifi-connections" in args for args in calls)
+
+
+def test_direct_paired_tcp_discovery_fails_closed_for_wrong_phone(monkeypatch):
+    wifi_mode(monkeypatch)
+    def probe(args, timeout=10):
+        if args[:2] == ["bonjour", "mobdev2"]:
+            return [{"UniqueDeviceID": "selected-phone"}]
+        if args[:2] == ["lockdown", "info"]:
+            return {"UniqueDeviceID": "another-phone"}
+        return []
+    monkeypatch.setattr(wireless, "_run", probe)
+    data = wireless.discovery()
+    assert data["direct_paired_tcp"] is False
+    assert data["network_discovery_state"] == "bonjour_visible_but_apple_usbmux_not_enumerating"
+
+
+def test_no_iphone_bonjour_distinguished_from_daemon_discovery_failure(monkeypatch):
+    wifi_mode(monkeypatch)
+    monkeypatch.setattr(wireless, "_run", lambda args, timeout=10: [])
+    state = wireless.discovery()
+    assert state["network_discovery_state"] == "no_iphone_bonjour_advertisement"
+    assert state["direct_paired_tcp"] is False

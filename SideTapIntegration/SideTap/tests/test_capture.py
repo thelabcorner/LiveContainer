@@ -141,3 +141,89 @@ def test_go_ios_capture_rejects_nonzero_exit_even_if_png_exists(monkeypatch):
     monkeypatch.setattr(capture.subprocess, "run", fake_run)
     with pytest.raises(capture.CaptureError, match="device not found"):
         capture._go_ios_screenshot()
+
+
+def test_wifi_dvt_capture_pins_target_and_requires_wifi_preflight(monkeypatch):
+    monkeypatch.setattr(capture.config, "SIDETAP_UDID", "pinned-iphone")
+    monkeypatch.setattr(capture.config, "get", lambda key, default=None: "subprocess" if key == "SIDETAP_WIFI_CAPTURE_BACKEND" else default)
+    import subprocess
+    monkeypatch.setattr(capture.wireless, "require_wifi", lambda: "pinned-iphone")
+    monkeypatch.setenv("PYMOBILEDEVICE3_TUNNEL", "wrong-session")
+    monkeypatch.setenv("PYMOBILEDEVICE3_UDID", "wrong-device")
+    monkeypatch.setenv("PYMOBILEDEVICE3_NATIVE", "1")
+    calls = []
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        assert args[1:6] == ["-m", "pymobiledevice3", "developer", "dvt", "screenshot"]
+        assert args[-1] == "--userspace"
+        assert kwargs["env"]["PYMOBILEDEVICE3_UDID"] == "pinned-iphone"
+        assert "PYMOBILEDEVICE3_TUNNEL" not in kwargs["env"]
+        assert "PYMOBILEDEVICE3_NATIVE" not in kwargs["env"]
+        assert kwargs["timeout"] == 25
+        Path(args[-2]).write_bytes(_minimal_test_png())
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(capture.subprocess, "run", fake_run)
+    assert capture._wifi_dvt_screenshot() == _minimal_test_png()
+    assert len(calls) == 1
+
+
+def test_wifi_dvt_capture_refuses_unverified_route_before_spawning(monkeypatch):
+    monkeypatch.setattr(capture.config, "get", lambda key, default=None: "subprocess" if key == "SIDETAP_WIFI_CAPTURE_BACKEND" else default)
+    monkeypatch.setattr(capture.config, "SIDETAP_UDID", "pinned-iphone")
+    from phone_harness import wireless
+    monkeypatch.setattr(capture.wireless, "require_wifi",
+                        lambda: (_ for _ in ()).throw(wireless.WirelessError("network missing")))
+    monkeypatch.setattr(capture.subprocess, "run",
+                        lambda *a, **k: pytest.fail("should not start DVT"))
+    with pytest.raises(capture.CaptureError, match="network missing"):
+        capture._wifi_dvt_screenshot()
+
+
+def test_wifi_dvt_capture_rejects_invalid_png(monkeypatch):
+    monkeypatch.setattr(capture.config, "SIDETAP_UDID", "pinned-iphone")
+    monkeypatch.setattr(capture.config, "get", lambda key, default=None: "subprocess" if key == "SIDETAP_WIFI_CAPTURE_BACKEND" else default)
+    import subprocess
+    monkeypatch.setattr(capture.wireless, "require_wifi", lambda: "pinned-iphone")
+    def fake_run(args, **kwargs):
+        Path(args[-2]).write_bytes(b"not a phone screenshot")
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(capture.subprocess, "run", fake_run)
+    with pytest.raises(capture.CaptureError, match="non-PNG"):
+        capture._wifi_dvt_screenshot()
+
+
+def test_wifi_dvt_capture_rejects_failed_subprocess(monkeypatch):
+    monkeypatch.setattr(capture.config, "SIDETAP_UDID", "pinned-iphone")
+    monkeypatch.setattr(capture.config, "get", lambda key, default=None: "subprocess" if key == "SIDETAP_WIFI_CAPTURE_BACKEND" else default)
+    import subprocess
+    monkeypatch.setattr(capture.wireless, "require_wifi", lambda: "pinned-iphone")
+    monkeypatch.setattr(capture.subprocess, "run",
+                        lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "no service"))
+    with pytest.raises(capture.CaptureError, match="no service"):
+        capture._wifi_dvt_screenshot()
+
+
+def test_wifi_mode_screenshot_never_uses_usb_only_go_ios(monkeypatch, fresh):
+    monkeypatch.setattr(capture.wireless, "mode", lambda: "wifi")
+    monkeypatch.setattr(capture.config, "get", lambda key, default=None: "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    monkeypatch.setattr(capture.config, "SIDETAP_UDID", "pinned-iphone")
+    monkeypatch.setattr(capture, "_wifi_dvt_screenshot", lambda: b"wireless-screen")
+    monkeypatch.setattr(capture, "_go_ios_screenshot", lambda: pytest.fail("used USB-only screenshot"))
+    monkeypatch.setattr(capture, "_wda_screenshot", lambda: pytest.fail("used old WDA"))
+    assert capture.screenshot_png() == b"wireless-screen"
+
+
+def test_wifi_cache_cannot_cross_phone_UDID(monkeypatch, fresh):
+    monkeypatch.setattr(capture.wireless, "mode", lambda: "wifi")
+    monkeypatch.setattr(capture.config, "get", lambda key, default=None: "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    monkeypatch.setattr(capture.config, "SIDETAP_UDID", "phone-A")
+    seen = []
+    def shot():
+        seen.append(capture.config.SIDETAP_UDID)
+        return seen[-1].encode()
+    monkeypatch.setattr(capture, "_wifi_dvt_screenshot", shot)
+    assert capture.screenshot_png(max_age=5) == b"phone-A"
+    assert capture.screenshot_png(max_age=5) == b"phone-A"
+    monkeypatch.setattr(capture.config, "SIDETAP_UDID", "phone-B")
+    assert capture.screenshot_png(max_age=5) == b"phone-B"
+    assert seen == ["phone-A", "phone-B"]

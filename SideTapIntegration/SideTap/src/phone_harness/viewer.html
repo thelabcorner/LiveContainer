@@ -764,7 +764,8 @@ async function loadStatus() {
         : inputEnabled
         ? 'Click to tap · drag to swipe · type to send keys.'
         : wifiDirect
-          ? 'Wi-Fi CoreDevice: ' + (s.wireless?.reason || 'Input or capture is not available.')
+          ? 'Wi-Fi: ' + (s.wireless?.capture ? 'Screen connected; touch unavailable. ' : 'Awaiting screen. ')
+            + (s.wireless?.reason || '')
         : link === 'wedged'
           ? 'The app in front is holding the link — click Restart link to put the Home Screen back.'
           : 'Live view is on. Touch input needs the signed driver (see checks →).';

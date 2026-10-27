@@ -240,9 +240,35 @@ def discovery() -> dict:
             result[label] = []
             result[label + "_error"] = str(exc)
     result["mode"] = mode()
-    result["pin_matches_wifi"] = bool(
-        config.SIDETAP_UDID and config.SIDETAP_UDID in result["wifi_mux"]
-    )
+    selected = config.SIDETAP_UDID
+    result["pin_matches_wifi"] = bool(selected and selected in result["wifi_mux"])
+    result["pin_matches_bonjour"] = bool(selected and selected in result["bonjour"])
+    result["direct_paired_tcp"] = False
+    result["network_discovery_state"] = "unverified"
+    if not selected:
+        result["network_discovery_state"] = "device_identity_not_pinned"
+    elif result["pin_matches_wifi"]:
+        result["network_discovery_state"] = "apple_usbmux_wireless_enumerated"
+    elif result["pin_matches_bonjour"]:
+        result["network_discovery_state"] = "bonjour_visible_but_apple_usbmux_not_enumerating"
+    else:
+        result["network_discovery_state"] = "no_iphone_bonjour_advertisement"
+    # If the Apple usbmux daemon has missed a Bonjour announcement after USB
+    # detach, the phone itself can still be reached via TCP 62078. Verify the
+    # *same pinned paired identity* using the explicit mobdev2 transport, not
+    # anonymous device selection. Never return the verbose lockdown record,
+    # which may contain serials, subscription information and account data.
+    if result["pin_matches_bonjour"]:
+        try:
+            info = _run(["lockdown", "info", "--mobdev2",
+                         f"--udid={selected}"], timeout=12)
+            result["direct_paired_tcp"] = (
+                isinstance(info, dict) and info.get("UniqueDeviceID") == selected
+            )
+        except WirelessError:
+            result["direct_paired_tcp"] = False
+        if result["direct_paired_tcp"] and not result["pin_matches_wifi"]:
+            result["network_discovery_state"] = "paired_tcp_ok_apple_usbmux_missed_wifi"
     return result
 
 
