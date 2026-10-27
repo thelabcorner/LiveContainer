@@ -1,3 +1,17 @@
+## Critical transport audit (2026-10-26)
+
+**Do not treat Wi-Fi lockdown discovery as proof that the HID command uses Wi-Fi.** After reviewing the actual `pymobiledevice3` implementation, the current `coredevice.py` calls `universal-hid-service ... --userspace` with `PYMOBILEDEVICE3_UDID`. In pymobiledevice3 11.45, the no-root userspace factory starts with `create_using_usbmux(serial=...)` and does not explicitly force the network connection type. A UDID chooses a device identity; it does *not* establish the route. This is an outstanding correctness gap in the wireless branch until the cable is unplugged and a real CoreDevice request succeeds.
+
+An explicitly paired RemotePairing Wi-Fi tunnel is a different transport from discovering `_apple-mobdev2._tcp` or connecting to lockdown TCP 62078. The upstream source supports `get_remote_pairing_tunnel_services(udid=...)` and tunnels from `remote start-tunnel -t wifi`, with identity verification through the stored pair record. The CLI also supports `--tunnel <UDID>` to use a verified `tunneld` connection, in contrast to `--userspace`; these switches are mutually exclusive. Before changing input routing, implement a **single, verified Wi-Fi RSD backend** with a pinned target ID, route evidence, loss/reconnect handling, and an explicit no-USB gate. Do not claim that `--userspace` plus `PYMOBILEDEVICE3_UDID` alone accomplishes this. The current unit tests mock subprocesses and cannot prove the route.
+
+**Other cautions:** the CoreDevice transport currently calls the CLI afresh for every HID gesture, which rebuilds an in-process tunnel and adds avoidable startup cost; a persistent controlled RSD session is preferable. The screenshot fallback currently uses go-ios, and therefore needs its *own* verified Wi-Fi service path rather than borrowing CoreDevice readiness. WDA and CoreDevice input modes must keep source/device identity, STOP, replay prevention and user authorization consistent.
+
+References:
+- https://github.com/doronz88/pymobiledevice3/blob/master/pymobiledevice3/remote/userspace_tunnel.py
+- https://github.com/doronz88/pymobiledevice3/blob/master/pymobiledevice3/remote/tunnel_service.py
+- https://github.com/doronz88/pymobiledevice3/blob/master/misc/RemoteXPC.md
+- https://doronz88.github.io/pymobiledevice3/guides/ios17-tunnels/
+
 # SideTap Wi-Fi implementation
 
 ## Status and scope
