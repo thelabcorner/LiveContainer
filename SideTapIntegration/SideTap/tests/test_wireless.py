@@ -70,12 +70,15 @@ def test_wifi_must_match_pinned_udid(monkeypatch):
 def test_wifi_ready_only_after_real_lockdown_network_proof(monkeypatch):
     wifi_mode(monkeypatch)
     def runner(args, timeout=10):
+        if "--usb" in args:
+            return []  # genuinely unplugged
         if "--simple" in args:
             return ["unrelated-phone", "selected-phone"]
         return [{"UniqueDeviceID": "selected-phone"}, {"UniqueDeviceID": "unrelated-phone"}]
     monkeypatch.setattr(wireless, "_run", runner)
     state = wireless.status()
-    assert state["ready"] and state["verified_network_device"]
+    assert state["ready"] and state["verified_network_device"] and state["untethered"]
+    assert state["coredevice_service_ready"] is False
     assert state["wda_ui_tree"] is False
     assert wireless.require_wifi() == "selected-phone"
 
@@ -227,3 +230,86 @@ def test_admin_wifi_mode_rejects_unverified_lockdown(monkeypatch):
     ok, detail, fix = admin._check_device()
     assert not ok and "Wi-Fi" in detail and "Wi-Fi missing" in fix
     enumerated.assert_not_called()
+
+
+def test_wifi_refuses_cable_attached_even_when_network_service_responds(monkeypatch):
+    wifi_mode(monkeypatch)
+    def runner(args, timeout=10):
+        if "--usb" in args:
+            return ["selected-phone"]
+        if "--simple" in args:
+            return ["selected-phone"]
+        return [{"UniqueDeviceID": "selected-phone"}]
+    monkeypatch.setattr(wireless, "_run", runner)
+    state = wireless.status()
+    assert state["usb_attached"] is True
+    assert state["verified_network_device"] is True
+    assert state["untethered"] is False and state["ready"] is False
+    assert "Unplug" in state["reason"]
+
+
+def test_control_status_probes_real_rsd_without_touch(monkeypatch):
+    wifi_mode(monkeypatch)
+    seen = []
+    def runner(args, timeout=10):
+        seen.append(args)
+        if "developer" in args:
+            return {"displays": [{"currentMode": {"size": [1170, 2532]}}]}
+        if "--usb" in args:
+            return []
+        if "--simple" in args:
+            return ["selected-phone"]
+        return [{"UniqueDeviceID": "selected-phone"}]
+    monkeypatch.setattr(wireless, "_run", runner)
+    result = wireless.control_status()
+    assert result["ready"] and result["untethered"]
+    assert result["coredevice_service_ready"]
+    assert seen[-1] == ["developer", "core-device", "get-display-info",
+                        "--userspace", "--udid=selected-phone"]
+    assert not any("universal-hid-service" in args for args in seen)
+
+
+def test_control_status_never_reports_ready_on_coredevice_failure(monkeypatch):
+    wifi_mode(monkeypatch)
+    def runner(args, timeout=10):
+        if "developer" in args:
+            raise wireless.WirelessError("RSD unavailable")
+        if "--usb" in args:
+            return []
+        if "--simple" in args:
+            return ["selected-phone"]
+        return [{"UniqueDeviceID": "selected-phone"}]
+    monkeypatch.setattr(wireless, "_run", runner)
+    state = wireless.control_status()
+    assert state["ready"] and state["untethered"]
+    assert not state["coredevice_service_ready"]
+    assert "RSD unavailable" in state["reason"]
+
+
+def test_control_status_rejects_empty_service_output(monkeypatch):
+    wifi_mode(monkeypatch)
+    def runner(args, timeout=10):
+        if "developer" in args:
+            return {}
+        if "--usb" in args:
+            return []
+        if "--simple" in args:
+            return ["selected-phone"]
+        return [{"UniqueDeviceID": "selected-phone"}]
+    monkeypatch.setattr(wireless, "_run", runner)
+    assert wireless.control_status()["coredevice_service_ready"] is False
+
+
+def test_control_status_does_not_probe_coredevice_if_cable_still_present(monkeypatch):
+    wifi_mode(monkeypatch)
+    seen = []
+    def runner(args, timeout=10):
+        seen.append(args)
+        if "--simple" in args:
+            return ["selected-phone"]
+        return [{"UniqueDeviceID": "selected-phone"}]
+    monkeypatch.setattr(wireless, "_run", runner)
+    state = wireless.control_status()
+    assert not state["ready"]
+    assert not state["coredevice_service_ready"]
+    assert not any("developer" in args for args in seen)
