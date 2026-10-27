@@ -281,7 +281,8 @@ def test_control_status_never_reports_ready_on_coredevice_failure(monkeypatch):
         return [{"UniqueDeviceID": "selected-phone"}]
     monkeypatch.setattr(wireless, "_run", runner)
     state = wireless.control_status()
-    assert state["ready"] and state["untethered"]
+    assert not state["ready"]
+    assert state["lockdown_ready"] and state["untethered"]
     assert not state["coredevice_service_ready"]
     assert "RSD unavailable" in state["reason"]
 
