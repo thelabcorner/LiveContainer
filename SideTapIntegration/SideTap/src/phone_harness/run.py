@@ -10,6 +10,7 @@ Usage:
   phone-harness wireless-status # read-only Wi-Fi transport verification
   phone-harness wireless-discover # compare USB, Wi-Fi usbmux and Bonjour
   phone-harness wireless-media-status # read-only HEVC/DisplayService probes
+  phone-harness hevc-probe --confirm # 4s bounded RTP-only stream certification
   phone-harness wireless-enable --confirm
                                 # enable Wi-Fi via selected trusted USB phone
   phone-harness view            # live viewer web page (click = tap)
@@ -125,6 +126,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result["media_service_ready"] else 1
         except wireless.WirelessError as exc:
             print("Wi-Fi media unavailable: " + str(exc), file=sys.stderr)
+            return 1
+    if cmd == "hevc-probe":
+        from . import hevc_probe
+        import json
+        if args[1:] != ["--confirm"]:
+            print("HEVC RTP capture needs hevc-probe --confirm; read-only metadata "
+                  "is available through wireless-media-status", file=sys.stderr)
+            return 2
+        try:
+            print(json.dumps(hevc_probe.probe(confirm=True), indent=2))
+            return 0
+        except hevc_probe.HEVCProbeError as exc:
+            print("HEVC stream unavailable: " + str(exc), file=sys.stderr)
             return 1
     if cmd == "wireless-enable":
         from . import wireless

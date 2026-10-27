@@ -76,6 +76,21 @@ application pins its SHA-256 fingerprint.
 - Existing SideTap `viewer.html` was designed for desktop; its responsive layout works on narrow viewports but does not yet constitute a pixel-perfect native iOS redesign. Cross-app XCTest automation still requires a valid WDA runner, and the separate one-slot WDA hypothesis remains unproven.
 - The iPhone must be able to reach the workstation. If the PC is offline, SideTap's viewer cannot respond. This is a **companion UI**, not a background iOS automation daemon.
 
+## Experimental HEVC streaming certification
+
+Continuous CoreDevice DisplayService HEVC/RTP video may replace DVT PNG
+polling. New read-only wireless-media-status checks media capability
+independently of screenshot/HID. A bounded hevc-probe --confirm performs an
+explicit opt-in 4-second RTP capture only if the pinned iPhone has a
+network-only paired connection. The result is measured RTP packets and
+timestamp cadence, NOT guessed decoded FPS. No HTTP video/control listener
+is exposed, and temporary packet capture is deleted after inspection.
+
+This is NOT yet device-certified on iOS 18.7.7: Bonjour sees the iPhone
+but the required Apple usbmux Network enumeration is currently empty.
+Existing DVT PNG captures remain the default.
+See HEVC.md for protocol details, safety and release requirements.
+
 ## Experimental untethered Wi-Fi support
 
 See [WIRELESS.md](WIRELESS.md) for implementation details, researched Apple
