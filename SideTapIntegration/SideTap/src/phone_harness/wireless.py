@@ -10,6 +10,7 @@ a pinned UDID, and a real USB device. This code never installs drivers.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from typing import Any
@@ -29,6 +30,19 @@ def mode() -> str:
 
 
 def _run(args: list[str], timeout: float = 10) -> Any:
+    # RSD-backed developer subcommands do not support --udid; the selected
+    # identity is resolved by the real CLI from PYMOBILEDEVICE3_UDID. The
+    # verified Wi-Fi-only preflight runs *before* these commands.
+    child_env = None
+    if args and args[0] == "developer":
+        selected = config.SIDETAP_UDID
+        if not selected:
+            raise WirelessError("Cannot start developer service without a pinned device")
+        child_env = os.environ.copy()
+        child_env["PYMOBILEDEVICE3_UDID"] = str(selected)
+        # Avoid inheriting incompatible alternate tunnel switches.
+        child_env.pop("PYMOBILEDEVICE3_TUNNEL", None)
+        child_env.pop("PYMOBILEDEVICE3_NATIVE", None)
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pymobiledevice3", *args],
@@ -37,14 +51,19 @@ def _run(args: list[str], timeout: float = 10) -> Any:
             text=True, timeout=timeout,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
             if sys.platform == "win32" else 0,
+            **({"env": child_env} if child_env is not None else {}),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise WirelessError("Wireless discovery timed out or pymobiledevice3 is unavailable") from exc
     if proc.returncode:
-        raise WirelessError(
-            "Apple device service rejected the probe: "
-            + (proc.stderr or proc.stdout).strip()[-320:]
-        )
+        detail = (proc.stderr or proc.stdout).strip()
+        if "Failed to start service" in detail or "InvalidService" in detail:
+            # The current iOS 18.7.7 device exposes RSD display metadata but
+            # rejects the separate screen/HID services. Do not imply a
+            # successful tunnel means the requested feature is available.
+            raise WirelessError("Device rejected the requested CoreDevice service "
+                                "(unsupported, unavailable, or missing required privileges)")
+        raise WirelessError("Apple device service rejected the probe: " + detail[-320:])
     # The mutating 'lockdown wifi-connections on' command normally prints
     # nothing on success. Probes expecting lists still reject this None.
     if not proc.stdout.strip():
@@ -82,6 +101,7 @@ def status() -> dict:
         "ready": False,
         "verified_network_device": False,
         "coredevice_service_ready": False,
+        "hid_service_ready": False,
         "untethered": False,
         "usb_attached": False,
         "wda_ui_tree": False,
@@ -146,7 +166,7 @@ def control_status() -> dict:
     try:
         display = _run(
             ["developer", "core-device", "get-display-info",
-             "--userspace", f"--udid={selected}"],
+             "--userspace"],
             timeout=25,
         )
         if not isinstance(display, dict) or not display:
@@ -154,12 +174,35 @@ def control_status() -> dict:
     except WirelessError as exc:
         probe["reason"] = "Wi-Fi lockdown available, but CoreDevice RSD is not: " + str(exc)
         return probe
+    probe["coredevice_service_ready"] = True
+    # get-display-info is NOT proof of touchscreen availability. On the real
+    # iOS 18.7.7 phone, this succeeds while universal-hid-service fails at
+    # service launch. Check the actual HID service without injecting touches.
+    try:
+        hid = _run(
+            ["developer", "core-device", "universal-hid-service",
+             "list-connected", "--userspace"],
+            timeout=25,
+        )
+        if not isinstance(hid, (dict, list)):
+            raise WirelessError("Unexpected CoreDevice HID service response")
+    except WirelessError as exc:
+        probe["reason"] = "CoreDevice display works, but HID service is unavailable: " + str(exc)
+        return probe
     probe.update(
         ready=True,
-        coredevice_service_ready=True,
-        reason="Paired Wi-Fi and CoreDevice RSD responded without USB; HID delivery untested",
+        hid_service_ready=True,
+        reason="Verified wireless CoreDevice display + HID service; touch delivery still untested",
     )
     return probe
+
+
+def require_hid() -> str:
+    """Demand a live read-only HID-service handshake before any input command."""
+    probe = control_status()
+    if not probe["ready"]:
+        raise WirelessError(probe["reason"])
+    return str(config.SIDETAP_UDID)
 
 
 def require_wifi() -> str:

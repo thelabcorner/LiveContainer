@@ -43,7 +43,7 @@ def _run(args: list[str], activity: str, timeout: float = 25) -> None:
     extra_env = None
     if wireless.mode() == "wifi":
         try:
-            selected = wireless.require_wifi()
+            selected = wireless.require_hid()
         except wireless.WirelessError as exc:
             raise CoreDeviceError(str(exc)) from exc
         extra_env = os.environ.copy()

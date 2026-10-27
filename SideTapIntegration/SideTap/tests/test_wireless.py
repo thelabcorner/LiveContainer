@@ -131,7 +131,7 @@ def test_explicit_wifi_enable_uses_only_selected_existing_usb(monkeypatch):
 
 def test_wifi_direct_hid_pins_device_and_uses_real_coredevice_cli(monkeypatch):
     wifi_mode(monkeypatch)
-    monkeypatch.setattr(coredevice.wireless, "require_wifi", lambda: "selected-phone")
+    monkeypatch.setattr(coredevice.wireless, "require_hid", lambda: "selected-phone")
     monkeypatch.setattr(coredevice.wda_client, "stop_engaged", lambda: False)
     monkeypatch.setattr(coredevice.wda_client, "_append_activity", lambda _: None)
     run = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
@@ -144,7 +144,7 @@ def test_wifi_direct_hid_pins_device_and_uses_real_coredevice_cli(monkeypatch):
 
 def test_wifi_direct_hid_never_runs_without_wifi_proof(monkeypatch):
     wifi_mode(monkeypatch)
-    monkeypatch.setattr(coredevice.wireless, "require_wifi",
+    monkeypatch.setattr(coredevice.wireless, "require_hid",
                         lambda: (_ for _ in ()).throw(wireless.WirelessError("not verified")))
     monkeypatch.setattr(coredevice.wda_client, "stop_engaged", lambda: False)
     run = Mock()
@@ -158,7 +158,7 @@ def test_stop_blocks_wifi_before_network_discovery(monkeypatch):
     wifi_mode(monkeypatch)
     monkeypatch.setattr(coredevice.wda_client, "stop_engaged", lambda: True)
     probe = Mock()
-    monkeypatch.setattr(coredevice.wireless, "require_wifi", probe)
+    monkeypatch.setattr(coredevice.wireless, "require_hid", probe)
     with pytest.raises(coredevice.CoreDeviceError, match="STOP"):
         coredevice.direct_tap(.5, .5)
     probe.assert_not_called()
@@ -264,9 +264,11 @@ def test_control_status_probes_real_rsd_without_touch(monkeypatch):
     result = wireless.control_status()
     assert result["ready"] and result["untethered"]
     assert result["coredevice_service_ready"]
-    assert seen[-1] == ["developer", "core-device", "get-display-info",
-                        "--userspace", "--udid=selected-phone"]
-    assert not any("universal-hid-service" in args for args in seen)
+    assert seen[-2] == ["developer", "core-device", "get-display-info",
+                         "--userspace"]
+    assert seen[-1] == ["developer", "core-device",
+                         "universal-hid-service", "list-connected", "--userspace"]
+    assert not any("tap" in args or "drag" in args for args in seen)
 
 
 def test_control_status_never_reports_ready_on_coredevice_failure(monkeypatch):
@@ -314,3 +316,61 @@ def test_control_status_does_not_probe_coredevice_if_cable_still_present(monkeyp
     assert not state["ready"]
     assert not state["coredevice_service_ready"]
     assert not any("developer" in args for args in seen)
+
+def test_coredevice_rsd_cli_pins_udid_in_environment_not_invalid_flag(monkeypatch):
+    import os
+    calls = []
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0, '{"displays":[{"primary":true}]}', '')
+    monkeypatch.setattr(wireless.subprocess, "run", fake_run)
+    monkeypatch.setenv("PYMOBILEDEVICE3_TUNNEL", "untrusted-other-device")
+    result = wireless._run(["developer", "core-device", "get-display-info", "--userspace"])
+    assert result["displays"][0]["primary"] is True
+    command, opts = calls[0]
+    assert "--udid" not in " ".join(command)
+    assert opts["env"]["PYMOBILEDEVICE3_UDID"] == "selected-phone"
+    assert "PYMOBILEDEVICE3_TUNNEL" not in opts["env"]
+    assert "env" not in {"env": None} or opts["env"] is not None
+
+
+def test_non_developer_discovery_does_not_inherit_a_new_udid(monkeypatch):
+    def fake_run(args, **kwargs):
+        assert "env" not in kwargs
+        return subprocess.CompletedProcess(args, 0, '[]', '')
+    monkeypatch.setattr(wireless.subprocess, "run", fake_run)
+    assert wireless._run(["usbmux", "list", "--usb", "--simple"]) == []
+
+def test_control_status_rejects_hid_service_failure_after_display_succeeds(monkeypatch):
+    wifi_mode(monkeypatch)
+    def runner(args, timeout=10):
+        if "universal-hid-service" in args:
+            raise wireless.WirelessError("InvalidService: com.apple.coredevice.hid")
+        if "get-display-info" in args:
+            return {"displays": [{"primary": True}]}
+        if "--usb" in args:
+            return []
+        if "--simple" in args:
+            return ["selected-phone"]
+        return [{"UniqueDeviceID": "selected-phone"}]
+    monkeypatch.setattr(wireless, "_run", runner)
+    state = wireless.control_status()
+    assert state["lockdown_ready"] and state["untethered"]
+    assert state["coredevice_service_ready"]
+    assert state["hid_service_ready"] is False
+    assert state["ready"] is False
+    assert "HID service is unavailable" in state["reason"]
+
+
+def test_hid_gate_refuses_input_when_service_is_missing(monkeypatch):
+    wifi_mode(monkeypatch)
+    monkeypatch.setattr(wireless, "control_status",
+                        lambda: {"ready": False, "reason": "HID missing"})
+    with pytest.raises(wireless.WirelessError, match="HID missing"):
+        wireless.require_hid()
+
+def test_failed_coredevice_service_gets_precise_short_error(monkeypatch):
+    fake = subprocess.CompletedProcess([], 1, "", "2026 ERROR Failed to start service. Possible reasons")
+    monkeypatch.setattr(wireless.subprocess, "run", lambda *args, **kw: fake)
+    with pytest.raises(wireless.WirelessError, match="Device rejected the requested CoreDevice service"):
+        wireless._run(["developer", "core-device", "universal-hid-service", "list-connected", "--userspace"])

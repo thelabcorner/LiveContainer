@@ -2794,3 +2794,15 @@ def test_wifi_direct_refuses_wda_send_and_signing(base_url, monkeypatch):
         assert r.status_code == 409
         assert "requires a live WDA" in r.json()["error"]
     assert viewer.Handler.client.calls == []
+
+def test_wifi_viewer_never_pretends_placeholder_is_a_live_screenshot(base_url, monkeypatch):
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    def unavailable(max_age=0):
+        raise RuntimeError("no iOS screen service")
+    monkeypatch.setattr(viewer.capture, "screenshot_png", unavailable)
+    response = requests.get(base_url + "/api/screenshot", timeout=5)
+    assert response.status_code == 503
+    assert response.json()["ok"] is False
+    assert "screen capture is unavailable" in response.json()["error"]

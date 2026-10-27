@@ -688,7 +688,14 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     self._send(200, capture.screenshot_png(max_age=0.4), "image/png")
                 except Exception:
-                    self._send(200, _PLACEHOLDER, "image/png")
+                    if _wireless_direct_selected():
+                        # A placeholder frame is not the remote phone screen.
+                        # Never show it as a live capture when the operator has
+                        # explicitly selected the genuine wireless backend.
+                        self._json({"ok": False,
+                                    "error": "Wireless screen capture is unavailable; input is disabled"}, 503)
+                    else:
+                        self._send(200, _PLACEHOLDER, "image/png")
             elif path == "/api/status":
                 # Screen size in points comes from WDA when the input driver is up.
                 # Without it we still stream go-ios screenshots and use pixel size.

@@ -14,6 +14,31 @@ References:
 
 # SideTap Wi-Fi implementation
 
+## Physical-device results — iOS 18.7.7 (October 26, 2026)
+
+Reproduced on the actual paired iPhone with USB absent, not simulated.
+
+| Probe | Result |
+|---|---|
+| pymobiledevice3 usbmux list --usb --simple | Empty (no wired device) |
+| pymobiledevice3 usbmux list --network --simple | Pinned iPhone is discovered over Wi-Fi |
+| Paired network lockdown | Responded; Developer Mode enabled |
+| CoreDevice get-display-info --userspace | SUCCESS: 1284 x 2778, 120 Hz display |
+| CoreDevice universal-hid-service list-connected --userspace | FAIL at service startup |
+| CoreDevice screen-capture screenshot --userspace | FAIL at service startup |
+| developer screenshot --userspace (legacy) | FAIL at service startup |
+| go-ios screenshot without active tunnel | FAIL: DVTSecureSocketProxy needs an RSD tunnel |
+| go-ios userspace agent | Agent started, but no device tunnel was established |
+
+This exact Windows go-ios behavior, stalling after "Tunnel server started" without an established Wi-Fi tunnel, is independently reported in https://github.com/danielpaulus/go-ios/issues/779. The upstream issue is open. A successful go-ios network-device listing is therefore insufficient to claim its XCTest/screenshot services will work.
+
+
+This is real, unplugged lockdown and CoreDevice RSD communication. It is NOT yet wireless screen capture or HID input. Missing features may be iOS-version limitations, entitlement requirements, or tooling incompatibilities.
+
+Source-level correction: RSD developer commands do not accept --udid. They use the real PYMOBILEDEVICE3_UDID environment variable with --userspace. The former --udid flag made the diagnostic fail even on a working network. The wireless readiness gate now tests the actual HID service before allowing gestures and reports ready=false when it is missing. The viewer does not send a fake placeholder frame as a successful wireless screenshot.
+
+Full automation still needs a working screenshot service, a verified HID service, or the existing WDA path with an active go-ios developer tunnel and signed runner. No installed IPA or bundle ID was changed; no blind touches were issued.
+
 ## Status and scope
 
 Wireless transport, selected-device validation, MCP diagnostics, and an opt-in CoreDevice HID adapter are now implemented inside the REAL SideTap source snapshot. The original SideTap viewer can route taps, swipes, and ASCII keyboard input to CoreDevice over a verified Wi-Fi connection, while preserving the WebDriverAgent route if an actual WDA runner is installed.
