@@ -2744,7 +2744,7 @@ def test_wifi_viewer_status_advertises_only_verified_input(base_url, monkeypatch
                         "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
     screenshot = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", 200, 400)
     monkeypatch.setattr(viewer.capture, "screenshot_png", lambda max_age=0: screenshot)
-    monkeypatch.setattr(viewer.wireless, "status", lambda: {"ready": True})
+    monkeypatch.setattr(viewer.wireless, "control_status", lambda: {"coredevice_service_ready": True})
     monkeypatch.setattr(viewer, "stop_engaged", lambda: False)
     r = requests.get(base_url + "/api/status", timeout=5)
     assert r.status_code == 200
