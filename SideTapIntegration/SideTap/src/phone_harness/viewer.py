@@ -20,7 +20,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import admin, approval, capture, config, device, syslog, trust
+from . import admin, approval, capture, config, coredevice, device, syslog, trust, wireless
 from .wda_client import (
     WDAClient,
     WDAError,
@@ -257,6 +257,10 @@ def _syslog_loop() -> None:
 
 
 def _heal_loop() -> None:
+    if _wireless_direct_selected():
+        # WDA-free mode is deliberate. Never restart, install or launch WDA
+        # behind the operator's back while waiting for Wi-Fi.
+        return
     probe = WDAClient(timeout=3)
     while True:
         time.sleep(_HEAL_POLL)
@@ -386,6 +390,37 @@ def _start_photos() -> dict:
     threading.Thread(target=_photos_worker, daemon=True).start()
     with _PHOTO_LOCK:
         return dict(_PHOTO_JOB)
+
+
+def _wireless_direct_selected() -> bool:
+    """A deliberate operator choice, not automatic fallback from dead WDA."""
+    return (
+        wireless.mode() == "wifi"
+        and config.get("SIDETAP_DIRECT_ENABLE", "0") == "1"
+    )
+
+
+def _wifi_fraction(raw: object, dimension: int, name: str) -> float:
+    """Convert actual viewer pixel units into CoreDevice's normalized HID."""
+    import math
+
+    if dimension <= 0:
+        raise ValueError("No current screen geometry for Wi-Fi input")
+    if isinstance(raw, bool):
+        raise ValueError(name + " must be a screen coordinate")
+    value = float(raw)
+    if not math.isfinite(value) or not 0 <= value <= dimension:
+        raise ValueError(name + " is outside the current display")
+    return value / dimension
+
+
+def _wireless_gesture_dimensions() -> tuple[int, int]:
+    # The WDA-down status already exposes the screenshot PNG *pixel* dimensions.
+    # Use the same image source to avoid mixing WDA point sizes and HID units.
+    width, height = _png_size(capture.screenshot_png(max_age=0.8))
+    if width <= 0 or height <= 0:
+        raise ValueError("Wi-Fi screenshot unavailable; gesture refused")
+    return width, height
 
 
 def _png_size(png: bytes) -> tuple[int, int]:
@@ -687,6 +722,28 @@ class Handler(BaseHTTPRequestHandler):
                         time.monotonic() - silent_since if silent_since else 0.0
                     ),
                 }
+                if _wireless_direct_selected():
+                    try:
+                        png = capture.screenshot_png(max_age=0.4)
+                        width, height = _png_size(png)
+                        verified = (width > 0 and height > 0 and
+                                    not stop_engaged() and wireless.status()["ready"])
+                        window = {"width": width, "height": height} if width and height else None
+                    except Exception:
+                        verified = False
+                        window = None
+                    self._json({
+                        **fresh,
+                        "starting": False,
+                        "setup_done": True,
+                        "window": window,
+                        "input": verified,
+                        "link": "wifi-coredevice" if verified else "down",
+                        "mjpeg": None,
+                        "lan_exposed": _LAN_STATE["exposed"],
+                        "boot": _BOOT_ID,
+                    })
+                    return
                 if _ACTION_LOCK.locked() and _LAST_STATUS is not None:
                     self._json({**_LAST_STATUS, **fresh})
                     return
@@ -764,11 +821,17 @@ class Handler(BaseHTTPRequestHandler):
                         window = {"width": pw, "height": ph}
                     except Exception:
                         window = None
+                    wifi_input = False
+                    if window and _wireless_direct_selected() and not stop_engaged():
+                        try:
+                            wifi_input = wireless.status()["ready"]
+                        except (wireless.WirelessError, OSError):
+                            wifi_input = False
                     self._json(
                         {
                             "window": window,
-                            "input": False,
-                            "link": link,
+                            "input": wifi_input,
+                            "link": "wifi-coredevice" if wifi_input else link,
                             "mjpeg": None,
                             "lan_exposed": _LAN_STATE["exposed"],
                             "boot": _BOOT_ID,
@@ -776,6 +839,12 @@ class Handler(BaseHTTPRequestHandler):
                         }
                     )
             elif path == "/api/phone":
+                if _wireless_direct_selected():
+                    # No stale WDA active-app or clipboard reads from another
+                    # device when the user selected CoreDevice-only transport.
+                    self._json({"battery": None, "locked": None, "app": None,
+                                "session": None, "page": None})
+                    return
                 global _LAST_PHONE
                 if _ACTION_LOCK.locked() and _LAST_PHONE is not None:
                     self._json(_LAST_PHONE)
@@ -867,6 +936,9 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc), "apps": []}, 502)
             elif path == "/api/clipboard-image":
+                if _wireless_direct_selected():
+                    self._json({"ok": False, "error": "WDA clipboard unavailable in Wi-Fi CoreDevice-only mode"}, 409)
+                    return
                 # The image on the phone's clipboard as PNG, for the page to
                 # put on the PC clipboard (Copy phone image). 404 when none.
                 with _action_slot():
@@ -878,6 +950,9 @@ class Handler(BaseHTTPRequestHandler):
                         {"ok": False, "error": "no image on the phone clipboard"}, 404
                     )
             elif path == "/api/clipboard":
+                if _wireless_direct_selected():
+                    self._json({"ok": False, "error": "WDA clipboard unavailable in Wi-Fi CoreDevice-only mode"}, 409)
+                    return
                 try:
                     with _action_slot():
                         text = self.client.get_clipboard()
@@ -887,6 +962,9 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:
                     self._json({"ok": False, "error": str(exc)})
             elif path == "/api/screen-text":
+                if _wireless_direct_selected():
+                    self._json({"ok": False, "error": "Semantic screen text requires WDA, not CoreDevice HID"}, 409)
+                    return
                 from . import helpers
 
                 try:
@@ -934,24 +1012,62 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         length = int(self.headers.get("Content-Length") or 0)
         payload = json.loads(self.rfile.read(length) or b"{}") if length else {}
+        # Never imply that WDA semantic helpers work in the CoreDevice-only
+        # mode, and never allow a stale WDA session to target a different
+        # device. STOP and administrative recovery routes remain available.
+        _wda_only = {
+            "/api/long_press", "/api/key", "/api/enter", "/api/home",
+            "/api/page", "/api/read-thread", "/api/lock", "/api/unlock",
+            "/api/clipboard", "/api/clipboard-image", "/api/send-image",
+            "/api/open-app", "/api/close-app", "/api/console",
+            "/api/text", "/api/send_decision", "/api/fix-input",
+        }
+        if _wireless_direct_selected() and path in _wda_only:
+            self._json({
+                "ok": False,
+                "error": "This control requires a live WDA session; paired Wi-Fi CoreDevice mode supports tap, swipe and ASCII type only.",
+            }, 409)
+            return
         try:
             if path == "/api/tap":
-                with _human_gesture(self.client):
-                    self.client.tap(float(payload["x"]), float(payload["y"]))
+                if _wireless_direct_selected():
+                    with _action_slot():
+                        w, h = _wireless_gesture_dimensions()
+                        coredevice.direct_tap(
+                            _wifi_fraction(payload["x"], w, "x"),
+                            _wifi_fraction(payload["y"], h, "y"))
+                else:
+                    with _human_gesture(self.client):
+                        self.client.tap(float(payload["x"]), float(payload["y"]))
                 self._json({"ok": True})
             elif path == "/api/swipe":
-                with _human_gesture(self.client):
-                    self.client.swipe(
-                        float(payload["x1"]),
-                        float(payload["y1"]),
-                        float(payload["x2"]),
-                        float(payload["y2"]),
-                        min(max(float(payload.get("seconds", 0.3)), 0.05), 3.0),
-                    )
+                if _wireless_direct_selected():
+                    with _action_slot():
+                        w, h = _wireless_gesture_dimensions()
+                        coredevice.direct_drag(
+                            _wifi_fraction(payload["x1"], w, "x1"),
+                            _wifi_fraction(payload["y1"], h, "y1"),
+                            _wifi_fraction(payload["x2"], w, "x2"),
+                            _wifi_fraction(payload["y2"], h, "y2"),
+                            float(payload.get("seconds", 0.3)),
+                        )
+                else:
+                    with _human_gesture(self.client):
+                        self.client.swipe(
+                            float(payload["x1"]),
+                            float(payload["y1"]),
+                            float(payload["x2"]),
+                            float(payload["y2"]),
+                            min(max(float(payload.get("seconds", 0.3)), 0.05), 3.0),
+                        )
                 self._json({"ok": True})
             elif path == "/api/type":
-                with _human_gesture(self.client):
-                    self.client.type_text(str(payload.get("text", "")))
+                if _wireless_direct_selected():
+                    with _action_slot():
+                        coredevice.direct_type_ascii(str(payload.get("text", "")))
+                else:
+                    with _human_gesture(self.client):
+                        self.client.type_text(str(payload.get("text", "")))
                 self._json({"ok": True})
             elif path == "/api/key":
                 with _human_gesture(self.client):
@@ -1125,6 +1241,9 @@ class Handler(BaseHTTPRequestHandler):
                     helpers.unlock(self.client)
                 self._json({"ok": True})
             elif path == "/api/up":
+                if _wireless_direct_selected():
+                    self._json({"ok": False, "error": "WDA restart is disabled in Wi-Fi CoreDevice-only mode"}, 409)
+                    return
                 # Restart tunnel + WDA (the fix after a replug). Slow (up to
                 # ~60s) but synchronous: the button disables while it runs.
                 self._json({"ok": admin.up() == 0})
@@ -1297,8 +1416,9 @@ def _kill_stale_viewer() -> None:
 def serve(open_browser: bool = True) -> int:  # noqa: vulture
     _kill_stale_viewer()
     _refresh_lan_state()
-    threading.Thread(target=_heal_loop, daemon=True).start()
-    threading.Thread(target=_syslog_loop, daemon=True).start()
+    if not _wireless_direct_selected():
+        threading.Thread(target=_heal_loop, daemon=True).start()
+        threading.Thread(target=_syslog_loop, daemon=True).start()
     server = _Server(("127.0.0.1", config.VIEWER_PORT), Handler)
     url = f"http://127.0.0.1:{config.VIEWER_PORT}"
     print(f"Viewer: {url}  (Ctrl+C to stop)")

@@ -2646,3 +2646,151 @@ def test_photos_worker_never_stays_running_on_a_crash(monkeypatch):
         job = dict(viewer._PHOTO_JOB)
     assert job["running"] is False and job["ok"] is False
     assert "usbmux fell over" in job["message"]
+
+def test_wifi_viewer_tap_routes_normalized_hid_without_wda(base_url, monkeypatch):
+    from unittest.mock import Mock
+    import struct
+
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    # A synthetic screenshot containing only the IHDR geometry header; never
+    # launches go-ios or reads a real user's phone.
+    screenshot = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", 400, 800)
+    monkeypatch.setattr(viewer.capture, "screenshot_png", lambda max_age=0: screenshot)
+    tap = Mock(return_value="tap sent")
+    monkeypatch.setattr(viewer.coredevice, "direct_tap", tap)
+    r = requests.post(base_url + "/api/tap", json={"x": 100, "y": 400}, timeout=5)
+    assert r.status_code == 200 and r.json()["ok"] is True
+    tap.assert_called_once_with(0.25, 0.5)
+    assert viewer.Handler.client.calls == []
+
+
+def test_wifi_viewer_drag_uses_screen_fraction_without_wda(base_url, monkeypatch):
+    from unittest.mock import Mock
+    import struct
+
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    screenshot = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", 300, 600)
+    monkeypatch.setattr(viewer.capture, "screenshot_png", lambda max_age=0: screenshot)
+    drag = Mock(return_value="drag sent")
+    monkeypatch.setattr(viewer.coredevice, "direct_drag", drag)
+    r = requests.post(base_url + "/api/swipe",
+                      json={"x1": 30, "y1": 120, "x2": 270, "y2": 480, "seconds": .4}, timeout=5)
+    assert r.status_code == 200
+    drag.assert_called_once()
+    expected = (0.1, 0.2, 0.9, 0.8, .4)
+    assert drag.call_args.args == pytest.approx(expected)
+    assert viewer.Handler.client.calls == []
+
+
+def test_wifi_viewer_ascii_typing_never_uses_wda(base_url, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    direct = Mock(return_value="typed 5 characters")
+    monkeypatch.setattr(viewer.coredevice, "direct_type_ascii", direct)
+    r = requests.post(base_url + "/api/type", json={"text": "hello"}, timeout=5)
+    assert r.status_code == 200
+    direct.assert_called_once_with("hello")
+    assert viewer.Handler.client.calls == []
+
+
+def test_wifi_viewer_rejects_stale_screenshot_geometry(base_url, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    monkeypatch.setattr(viewer.capture, "screenshot_png", lambda max_age=0: b"bad")
+    direct = Mock()
+    monkeypatch.setattr(viewer.coredevice, "direct_tap", direct)
+    r = requests.post(base_url + "/api/tap", json={"x": 200, "y": 300}, timeout=5)
+    assert r.status_code == 500
+    direct.assert_not_called()
+
+
+def test_wifi_viewer_rejects_nonfinite_hid_coordinates(base_url, monkeypatch):
+    from unittest.mock import Mock
+    import struct
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    screenshot = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", 200, 400)
+    monkeypatch.setattr(viewer.capture, "screenshot_png", lambda max_age=0: screenshot)
+    direct = Mock()
+    monkeypatch.setattr(viewer.coredevice, "direct_tap", direct)
+    for bad in (-1, 201, "NaN", "Infinity"):
+        r = requests.post(base_url + "/api/tap", json={"x": bad, "y": 100}, timeout=5)
+        assert r.status_code == 500
+    direct.assert_not_called()
+
+
+def test_wifi_wda_path_preserved_when_direct_hid_disabled(base_url, monkeypatch):
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "0" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    r = requests.post(base_url + "/api/tap", json={"x": 30, "y": 40}, timeout=5)
+    assert r.status_code == 200
+    assert ("tap", 30.0, 40.0) in viewer.Handler.client.calls
+
+
+def test_wifi_viewer_status_advertises_only_verified_input(base_url, monkeypatch):
+    import struct
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    screenshot = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", 200, 400)
+    monkeypatch.setattr(viewer.capture, "screenshot_png", lambda max_age=0: screenshot)
+    monkeypatch.setattr(viewer.wireless, "status", lambda: {"ready": True})
+    monkeypatch.setattr(viewer, "stop_engaged", lambda: False)
+    r = requests.get(base_url + "/api/status", timeout=5)
+    assert r.status_code == 200
+    assert r.json()["input"] is True
+    assert r.json()["window"] == {"width": 200, "height": 400}
+    assert r.json()["link"] == "wifi-coredevice"
+
+def test_wifi_direct_refuses_wda_only_actions(base_url, monkeypatch):
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    for endpoint in ("/api/long_press", "/api/key", "/api/enter", "/api/home",
+                     "/api/page", "/api/lock", "/api/unlock"):
+        response = requests.post(base_url + endpoint, json={"x": 10, "y": 10}, timeout=5)
+        assert response.status_code == 409
+        assert "requires a live WDA" in response.json()["error"]
+    assert viewer.Handler.client.calls == []
+
+
+def test_wifi_direct_retains_human_stop_action(base_url, monkeypatch, tmp_path):
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    monkeypatch.setattr(viewer.config, "STATE_DIR", tmp_path)
+    response = requests.post(base_url + "/api/stop", json={"stop": True}, timeout=5)
+    assert response.status_code == 200
+    assert (tmp_path / "STOP").exists()
+
+def test_wifi_direct_does_not_leak_stale_wda_active_app(base_url, monkeypatch):
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    client = viewer.Handler.client
+    client.app = {"bundleId": "com.apple.MobileSMS", "name": "Messages"}
+    body = requests.get(base_url + "/api/phone", timeout=5).json()
+    assert body == {"battery": None, "locked": None, "app": None, "session": None, "page": None}
+    assert client.calls == []
+
+
+def test_wifi_direct_refuses_wda_send_and_signing(base_url, monkeypatch):
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    for endpoint in ("/api/text", "/api/send_decision", "/api/fix-input",
+                     "/api/open-app", "/api/console"):
+        r = requests.post(base_url + endpoint, json={"text": "unsafe"}, timeout=5)
+        assert r.status_code == 409
+        assert "requires a live WDA" in r.json()["error"]
+    assert viewer.Handler.client.calls == []

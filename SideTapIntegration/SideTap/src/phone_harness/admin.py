@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from xml.sax.saxutils import escape
 
-from . import capture, config, device, syslog, wda_client
+from . import capture, config, device, syslog, wda_client, wireless
 from .wda_client import WDAClient, stop_file
 
 
@@ -36,6 +36,26 @@ def _check_go_ios():
 
 
 def _check_device():
+    # Original SideTap assumes USB. In explicitly requested Wi-Fi mode, first
+    # require a live *paired* network lockdown session; Bonjour advertisements
+    # or stale usbmux entries do not establish command delivery.
+    if wireless.mode() == "wifi":
+        connection = wireless.status()
+        if not connection["ready"]:
+            return False, "Wi-Fi iPhone not reachable", (
+                connection["reason"] + " Run: phone-harness wireless-discover."
+            )
+        try:
+            recognized = device.list_devices()
+        except Exception as exc:
+            return False, "Paired Wi-Fi lockdown works but go-ios cannot enumerate it", str(exc)
+        if config.SIDETAP_UDID not in recognized:
+            return False, "Paired Wi-Fi reachable, but go-ios cannot see the phone", (
+                "The original WDA transport requires go-ios network enumeration. "
+                "WDA-free CoreDevice gestures may still work with "
+                "SIDETAP_DIRECT_ENABLE=1; see wireless-status."
+            )
+        return True, "iPhone connected over verified paired Wi-Fi", ""
     try:
         udids = device.list_devices()
     except Exception as exc:

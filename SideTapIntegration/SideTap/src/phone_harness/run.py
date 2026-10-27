@@ -7,6 +7,10 @@ Usage:
   phone-harness doctor          # diagnose the whole chain (alias: --doctor)
   phone-harness up              # start tunnel + WDA + port forwards
   phone-harness down            # stop them
+  phone-harness wireless-status # read-only Wi-Fi transport verification
+  phone-harness wireless-discover # compare USB, Wi-Fi usbmux and Bonjour
+  phone-harness wireless-enable --confirm
+                                # enable Wi-Fi via selected trusted USB phone
   phone-harness view            # live viewer web page (click = tap)
   phone-harness companion       # explicit TLS-paired SideTap iOS UI over LAN
   phone-harness mcp             # MCP server over stdio, e.g.:
@@ -101,6 +105,27 @@ def main(argv: list[str] | None = None) -> int:
         from . import viewer
 
         return viewer.serve()
+    if cmd in ("wireless-status", "wireless-discover"):
+        from . import wireless
+        import json
+        try:
+            data = wireless.status() if cmd == "wireless-status" else wireless.discovery()
+            print(json.dumps(data, indent=2))
+            return 0 if (cmd != "wireless-status" or data["ready"]) else 1
+        except wireless.WirelessError as exc:
+            print("Wireless unavailable: " + str(exc), file=sys.stderr)
+            return 1
+    if cmd == "wireless-enable":
+        from . import wireless
+        if args[1:] != ["--confirm"]:
+            print("Requires wireless-enable --confirm and pinned SIDETAP_UDID on verified USB", file=sys.stderr)
+            return 2
+        try:
+            print(wireless.enable_wifi_connections(confirm=True))
+            return 0
+        except wireless.WirelessError as exc:
+            print("Wireless enable refused: " + str(exc), file=sys.stderr)
+            return 1
     if cmd == "direct-status":
         from . import coredevice
         print(coredevice.direct_status())

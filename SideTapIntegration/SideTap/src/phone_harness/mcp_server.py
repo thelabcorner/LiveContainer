@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP, Image
 
-from . import coredevice, helpers, trust
+from . import coredevice, helpers, trust, wireless
 
 server = FastMCP(
     "sidetap",
@@ -55,6 +55,7 @@ _TOOLS = [
     helpers.send_image,
     helpers.save_clipboard_image,
     helpers.wait_stable,
+    wireless.wireless_status,  # read only; never modify Wi-Fi device settings
     coredevice.direct_status,
     coredevice.direct_tap,
     coredevice.direct_drag,

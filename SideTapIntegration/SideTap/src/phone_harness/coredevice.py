@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import math
+import os
 import subprocess
 import sys
 
-from . import config, device, wda_client
+from . import config, device, wda_client, wireless
 
 
 class CoreDeviceError(RuntimeError):
@@ -21,6 +22,11 @@ def _coordinate(value: float) -> int:
 def direct_status() -> dict:
     """Read-only status; cannot control the device."""
     enabled = config.get("SIDETAP_DIRECT_ENABLE", "0") == "1"
+    if wireless.mode() == "wifi":
+        probe = wireless.status()
+        return {**probe, "enabled": enabled,
+                "ready": enabled and probe["ready"] and not wda_client.stop_engaged(),
+                "stop": wda_client.stop_engaged(), "wda_ui_tree": False}
     try:
         devices = sorted(set(device.list_devices()))
     except (OSError, subprocess.TimeoutExpired, device.DeviceError) as exc:
@@ -34,18 +40,29 @@ def _run(args: list[str], activity: str, timeout: float = 25) -> None:
         raise CoreDeviceError("Direct HID disabled. Set SIDETAP_DIRECT_ENABLE=1 explicitly.")
     if wda_client.stop_engaged():
         raise CoreDeviceError("STOP is engaged")
-    try:
-        phones = sorted(set(device.list_devices()))
-    except (OSError, subprocess.TimeoutExpired, device.DeviceError) as exc:
-        raise CoreDeviceError("Could not verify attached iPhone") from exc
-    if len(phones) != 1 or (config.SIDETAP_UDID and config.SIDETAP_UDID != phones[0]):
-        raise CoreDeviceError("Exactly one selected, physically attached iPhone is required")
+    extra_env = None
+    if wireless.mode() == "wifi":
+        try:
+            selected = wireless.require_wifi()
+        except wireless.WirelessError as exc:
+            raise CoreDeviceError(str(exc)) from exc
+        extra_env = os.environ.copy()
+        extra_env["PYMOBILEDEVICE3_UDID"] = selected
+    else:
+        try:
+            phones = sorted(set(device.list_devices()))
+        except (OSError, subprocess.TimeoutExpired, device.DeviceError) as exc:
+            raise CoreDeviceError("Could not verify attached iPhone") from exc
+        if len(phones) != 1 or (config.SIDETAP_UDID and config.SIDETAP_UDID != phones[0]):
+            raise CoreDeviceError("Exactly one selected, physically attached iPhone is required")
     cmd = [sys.executable, "-m", "pymobiledevice3", "developer", "core-device", "universal-hid-service", *args, "--userspace"]
+    kwargs = {"env": extra_env} if extra_env is not None else {}
     try:
         proc = subprocess.run(
             cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True,
             timeout=timeout,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0,
+            **kwargs,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise CoreDeviceError("Delivery unknown: do not automatically repeat input") from exc

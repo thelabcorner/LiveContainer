@@ -124,7 +124,7 @@ def _json_lines(text: str) -> list[dict]:
 
 
 def list_devices() -> list[str]:
-    """UDIDs of USB-connected iPhones."""
+    """UDIDs currently visible to go-ios (USB or paired Wi-Fi with capable usbmuxd)."""
     cache = getattr(_run_cache, "cache", None)
     if cache is not None and "list_devices" in cache:
         return cache["list_devices"]

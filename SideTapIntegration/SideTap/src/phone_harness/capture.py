@@ -16,7 +16,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import device
+from . import config, device, wireless
 from .wda_client import WDAClient, WDAError
 
 
@@ -26,6 +26,7 @@ class CaptureError(RuntimeError):
 
 _last_png: bytes | None = None
 _last_at: float = 0.0
+_last_transport: tuple[str, bool] | None = None
 
 # One sessionless client for GET /screenshot (it never creates a WDA session,
 # so it cannot steal the single session helpers/viewer hold). When WDA is down
@@ -81,13 +82,21 @@ def screenshot_png(max_age: float = 0.0) -> bytes:  # noqa: vulture  (called fro
     max_age > 0 returns a cached frame if it is younger than max_age seconds,
     which keeps the viewer smooth without hammering the device.
     """
-    global _last_png, _last_at
-    if max_age and _last_png is not None and (time.time() - _last_at) < max_age:
+    global _last_png, _last_at, _last_transport
+    route = (wireless.mode(), config.get("SIDETAP_DIRECT_ENABLE", "0") == "1")
+    if (max_age and _last_png is not None and _last_transport == route
+            and (time.time() - _last_at) < max_age):
         return _last_png
 
-    png = _wda_screenshot()
-    if png is None:
+    if route == ("wifi", True):
+        # Never mix an unrelated/stale WDA frame with coordinates going to
+        # the explicitly pinned CoreDevice Wi-Fi phone.
+        wireless.require_wifi()
         png = _go_ios_screenshot()
+    else:
+        png = _wda_screenshot()
+        if png is None:
+            png = _go_ios_screenshot()
 
-    _last_png, _last_at = png, time.time()
+    _last_png, _last_at, _last_transport = png, time.time(), route
     return png

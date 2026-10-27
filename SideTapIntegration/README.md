@@ -76,6 +76,20 @@ application pins its SHA-256 fingerprint.
 - Existing SideTap `viewer.html` was designed for desktop; its responsive layout works on narrow viewports but does not yet constitute a pixel-perfect native iOS redesign. Cross-app XCTest automation still requires a valid WDA runner, and the separate one-slot WDA hypothesis remains unproven.
 - The iPhone must be able to reach the workstation. If the PC is offline, SideTap's viewer cannot respond. This is a **companion UI**, not a background iOS automation daemon.
 
+## Experimental untethered Wi-Fi support
+
+See [WIRELESS.md](WIRELESS.md) for implementation details, researched Apple
+service requirements, exact CLI commands, security invariants and release gates.
+
+This fork now preserves upstream USB as the default and provides an explicitly
+opted-in, pinned-device Wi-Fi transport. Paired network lockdown is verified
+before CoreDevice HID gestures, and the actual SideTap viewer can route tap,
+swipe and ASCII typing through it while reusing network go-ios screenshots.
+Signed-WDA semantics remain available only with an installed WDA runner. The
+last live PC probe showed NO attached USB device and NO verified Wi-Fi route,
+so full cable-free operation on iOS 18.7.7 is **not yet device-verified**.
+This feature requires no additional iOS IPA or bundle identifier changes.
+
 ## Actual runtime boundaries
 
 | Requirement | Status |
