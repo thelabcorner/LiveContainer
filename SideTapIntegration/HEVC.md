@@ -1,3 +1,22 @@
+# Updated physical-device verdict (October 27, 2026)
+
+The missing developer image was restored successfully over the official
+userspace tunnel. After that, the iPhone advertised 80 RSD services and
+accepted DisplayService metadata requests, but rejected actual video
+startup with code 9021: **"Remote control requires iOS 27.0 or later
+on this device."** This handset is on iOS 18.7.7. Native CoreDevice
+HEVC is therefore unavailable despite restored pairing, DDI and Wi-Fi.
+
+The standalone Windows AirPlay receiver has been launched as an alternate
+continuous-video route, with GPU decoding and mDNS advertisement verified.
+No AirPlay video session has been confirmed; Windows Firewall contains
+explicit inbound block rules for this receiver. They remain unchanged.
+
+See [HEVC_FINDINGS_20261027.md](HEVC_FINDINGS_20261027.md) for measured
+service-directory changes, commands, the device error and next steps.
+
+---
+
 # SideTap continuous HEVC video: engineering and release gates
 
 Status: source-backed and protocol-tested; not yet device-certified.

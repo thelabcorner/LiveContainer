@@ -216,6 +216,24 @@ def media_capabilities() -> dict:
     }
     if not state["ready"]:
         return result
+    # Only the device's authenticated RSD directory can establish whether
+    # DisplayService actually exists. It can be absent even when the DDI,
+    # Instruments and a functioning CoreDeviceProxy tunnel are present.
+    from . import hevc_services
+    try:
+        inventory = hevc_services.probe(str(config.SIDETAP_UDID))
+    except hevc_services.RSDInventoryError as exc:
+        result["reason"] = "RSD service inventory unavailable: " + str(exc)
+        return result
+    result["rsd"] = inventory
+    if not inventory["hevc_display_advertised"]:
+        result["reason"] = (
+            "Paired iPhone RSD advertises "
+            + str(inventory["service_count"])
+            + " services but not com.apple.coredevice.displayservice; "
+            "HEVC DisplayService is unavailable on this connection"
+        )
+        return result
     for key, command in (
         ("media_service_ready", "get-media-support-info"),
         ("stream_status_ready", "get-media-stream-server-status"),

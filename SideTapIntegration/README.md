@@ -76,6 +76,8 @@ application pins its SHA-256 fingerprint.
 - Existing SideTap `viewer.html` was designed for desktop; its responsive layout works on narrow viewports but does not yet constitute a pixel-perfect native iOS redesign. Cross-app XCTest automation still requires a valid WDA runner, and the separate one-slot WDA hypothesis remains unproven.
 - The iPhone must be able to reach the workstation. If the PC is offline, SideTap's viewer cannot respond. This is a **companion UI**, not a background iOS automation daemon.
 
+**Device-certified update (October 27):** developer-image recovery succeeded, but iOS 18.7.7 rejects HEVC stream startup with CoreDevice error 9021 (requires iOS 27+). A standalone AirPlay receiver is running on Windows; see [HEVC physical results](HEVC_FINDINGS_20261027.md). Its video connection and firewall allowance remain unverified.
+
 ## Experimental HEVC streaming certification
 
 Continuous CoreDevice DisplayService HEVC/RTP video may replace DVT PNG

@@ -11,6 +11,7 @@ Usage:
   phone-harness wireless-discover # compare USB, Wi-Fi usbmux and Bonjour
   phone-harness wireless-media-status # read-only HEVC/DisplayService probes
   phone-harness hevc-probe --confirm # 4s bounded RTP-only stream certification
+  phone-harness wireless-mount-ddi --confirm # opt-in signed DDI recovery over Wi-Fi
   phone-harness wireless-enable --confirm
                                 # enable Wi-Fi via selected trusted USB phone
   phone-harness view            # live viewer web page (click = tap)
@@ -126,6 +127,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result["media_service_ready"] else 1
         except wireless.WirelessError as exc:
             print("Wi-Fi media unavailable: " + str(exc), file=sys.stderr)
+            return 1
+    if cmd == "wireless-mount-ddi":
+        from . import ddi_recovery
+        import json
+        try:
+            print(json.dumps(ddi_recovery.mount(confirm=args[1:] == ["--confirm"]), indent=2))
+            return 0
+        except ddi_recovery.DDIMountError as exc:
+            print("DDI restoration unavailable: " + str(exc), file=sys.stderr)
             return 1
     if cmd == "hevc-probe":
         from . import hevc_probe

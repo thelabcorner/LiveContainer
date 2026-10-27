@@ -422,6 +422,8 @@ def test_no_iphone_bonjour_distinguished_from_daemon_discovery_failure(monkeypat
 
 
 def test_media_capabilities_never_claims_stream_from_dvt_screen(monkeypatch):
+    from phone_harness import hevc_services
+    monkeypatch.setattr(hevc_services, "probe", lambda udid: {"service_count": 72, "hevc_display_advertised": True})
     wifi_mode(monkeypatch)
     monkeypatch.setattr(wireless, "status",
                         lambda: {"ready": True, "reason": "paired Wi-Fi verified"})
@@ -452,6 +454,8 @@ def test_media_capabilities_stops_before_service_if_no_wifi(monkeypatch):
 
 
 def test_media_capabilities_failed_display_is_not_held_as_success(monkeypatch):
+    from phone_harness import hevc_services
+    monkeypatch.setattr(hevc_services, "probe", lambda udid: {"service_count": 72, "hevc_display_advertised": True})
     wifi_mode(monkeypatch)
     monkeypatch.setattr(wireless, "status",
                         lambda: {"ready": True, "reason": "Paired Wi-Fi"})
@@ -465,3 +469,21 @@ def test_media_capabilities_failed_display_is_not_held_as_success(monkeypatch):
     assert info["stream_status_ready"] is False
     assert info["video_stream_verified"] is False
     assert "InvalidService" in info["reason"]
+
+def test_media_capabilities_rsd_directory_proves_hevc_absent(monkeypatch):
+    wifi_mode(monkeypatch)
+    monkeypatch.setattr(wireless, "status", lambda: {"ready": True, "reason": "paired"})
+    from phone_harness import hevc_services
+    monkeypatch.setattr(hevc_services, "probe", lambda udid: {
+        "service_count": 59,
+        "hevc_display_advertised": False,
+        "coredevice_service_count": 0,
+    })
+    monkeypatch.setattr(wireless, "_run", lambda *a, **k:
+                        pytest.fail("Never launch absent DisplayService"))
+    result = wireless.media_capabilities()
+    assert result["lockdown_ready"] is True
+    assert result["media_service_ready"] is False
+    assert result["video_stream_verified"] is False
+    assert result["rsd"]["service_count"] == 59
+    assert "not com.apple.coredevice.displayservice" in result["reason"]
