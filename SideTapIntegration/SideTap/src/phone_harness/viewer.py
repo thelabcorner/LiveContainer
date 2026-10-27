@@ -730,19 +730,33 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 }
                 if _wireless_direct_selected():
+                    # A real RSD metadata response is NOT enough. The device
+                    # currently exposes display-info but rejects the HID
+                    # service. Check HID first: do not spend a second 30s
+                    # screenshot timeout on every 5s status poll in that case.
                     try:
-                        png = capture.screenshot_png(max_age=0.4)
-                        width, height = _png_size(png)
-                        verified = (width > 0 and height > 0 and
-                                    not stop_engaged() and wireless.control_status()["coredevice_service_ready"])
-                        window = {"width": width, "height": height} if width and height else None
+                        capability = wireless.control_status()
                     except Exception:
-                        verified = False
-                        window = None
+                        capability = {"ready": False, "reason": "Wi-Fi service probe failed"}
+                    verified = False
+                    window = None
+                    if capability.get("ready") and not stop_engaged():
+                        try:
+                            width, height = _png_size(capture.screenshot_png(max_age=0.4))
+                            if width > 0 and height > 0:
+                                window = {"width": width, "height": height}
+                                verified = True
+                            else:
+                                capability = {**capability, "reason": "No valid phone screenshot"}
+                        except Exception:
+                            capability = {**capability, "reason": "Phone screenshot service unavailable"}
                     self._json({
                         **fresh,
                         "starting": False,
                         "setup_done": True,
+                        "transport": "wifi-coredevice",
+                        "wireless": {"ready": verified,
+                                     "reason": capability.get("reason", "Wi-Fi input not ready")},
                         "window": window,
                         "input": verified,
                         "link": "wifi-coredevice" if verified else "down",

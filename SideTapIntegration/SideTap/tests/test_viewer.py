@@ -573,9 +573,11 @@ def test_viewer_html_hides_fix_input_on_a_wedge_but_never_restart_link():
     assert "wedged" in fix.group(1), (
         "btn-fix must not offer the Sideloadly re-sign wizard for a wedged link"
     )
-    assert up.group(1).strip() == "inputEnabled", (
-        "btn-up is the repair for every failing state and must stay unconditional"
+    assert up.group(1).strip() == "wifiDirect || inputEnabled", (
+        "btn-up must remain available for both WDA failure modes, but must "
+        "not offer a WDA restart when the operator selected HID-only Wi-Fi"
     )
+    assert "wedged" not in up.group(1)
 
 
 def test_activity_endpoint_serves_feed(base_url, tmp_path, monkeypatch):
@@ -2744,7 +2746,7 @@ def test_wifi_viewer_status_advertises_only_verified_input(base_url, monkeypatch
                         "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
     screenshot = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", 200, 400)
     monkeypatch.setattr(viewer.capture, "screenshot_png", lambda max_age=0: screenshot)
-    monkeypatch.setattr(viewer.wireless, "control_status", lambda: {"coredevice_service_ready": True})
+    monkeypatch.setattr(viewer.wireless, "control_status", lambda: {"ready": True, "coredevice_service_ready": True})
     monkeypatch.setattr(viewer, "stop_engaged", lambda: False)
     r = requests.get(base_url + "/api/status", timeout=5)
     assert r.status_code == 200
@@ -2806,3 +2808,40 @@ def test_wifi_viewer_never_pretends_placeholder_is_a_live_screenshot(base_url, m
     assert response.status_code == 503
     assert response.json()["ok"] is False
     assert "screen capture is unavailable" in response.json()["error"]
+
+def test_wifi_viewer_status_requires_hid_not_only_display_metadata(base_url, monkeypatch):
+    from unittest.mock import Mock
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    screenshot = Mock(side_effect=AssertionError("No screenshot attempt without HID"))
+    monkeypatch.setattr(viewer.capture, "screenshot_png", screenshot)
+    monkeypatch.setattr(viewer.wireless, "control_status", lambda: {
+        "ready": False,
+        "coredevice_service_ready": True,
+        "hid_service_ready": False,
+        "reason": "HID not provided by iOS 18",
+    })
+    response = requests.get(base_url + "/api/status", timeout=5)
+    assert response.status_code == 200
+    info = response.json()
+    assert info["transport"] == "wifi-coredevice"
+    assert info["input"] is False and info["window"] is None
+    assert info["wireless"]["reason"] == "HID not provided by iOS 18"
+    screenshot.assert_not_called()
+
+
+def test_wifi_viewer_status_requires_image_even_if_hid_available(base_url, monkeypatch):
+    monkeypatch.setattr(viewer.config, "get", lambda key, default=None:
+                        "wifi" if key == "SIDETAP_TRANSPORT" else
+                        "1" if key == "SIDETAP_DIRECT_ENABLE" else default)
+    monkeypatch.setattr(viewer.wireless, "control_status", lambda: {
+        "ready": True,
+        "hid_service_ready": True,
+        "reason": "HID available",
+    })
+    monkeypatch.setattr(viewer.capture, "screenshot_png",
+                        lambda max_age=0: (_ for _ in ()).throw(RuntimeError("No screenshot")))
+    info = requests.get(base_url + "/api/status", timeout=5).json()
+    assert info["input"] is False
+    assert info["wireless"]["reason"] == "Phone screenshot service unavailable"

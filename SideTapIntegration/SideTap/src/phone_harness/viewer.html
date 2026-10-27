@@ -734,6 +734,7 @@ async function loadStatus() {
     // accepts and nothing answers, so the signed driver is on the phone and
     // re-signing is the wrong repair. An older server sends no link at all.
     const link = s.link || (inputEnabled ? 'up' : 'down');
+    const wifiDirect = s.transport === 'wifi-coredevice';
     // The link comes up in a background thread after this page opens. While
     // that runs, a dead tunnel is "starting", not "failing".
     const wasStarting = linkStarting;
@@ -762,6 +763,8 @@ async function loadStatus() {
         ? 'The phone has not answered for over a minute — this picture is frozen.'
         : inputEnabled
         ? 'Click to tap · drag to swipe · type to send keys.'
+        : wifiDirect
+          ? 'Wi-Fi CoreDevice: ' + (s.wireless?.reason || 'Input or capture is not available.')
         : link === 'wedged'
           ? 'The app in front is holding the link — click Restart link to put the Home Screen back.'
           : 'Live view is on. Touch input needs the signed driver (see checks →).';
@@ -775,8 +778,8 @@ async function loadStatus() {
     if (!fixRunning) {
       // Restart link stays visible in EVERY failing state — POST /api/up
       // unwedges before it restarts anything, so it is the repair for both.
-      document.getElementById('btn-fix').hidden = inputEnabled || link === 'wedged';
-      document.getElementById('btn-up').hidden = inputEnabled;
+      document.getElementById('btn-fix').hidden = wifiDirect || inputEnabled || link === 'wedged';
+      document.getElementById('btn-up').hidden = wifiDirect || inputEnabled;
     }
     // Gesture shortcuts and the paste box need the input driver.
     document.getElementById('btn-notifs').hidden = !inputEnabled;
