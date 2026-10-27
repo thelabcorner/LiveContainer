@@ -23,7 +23,7 @@ def direct_status() -> dict:
     """Read-only status; cannot control the device."""
     enabled = config.get("SIDETAP_DIRECT_ENABLE", "0") == "1"
     if wireless.mode() == "wifi":
-        probe = wireless.status()
+        probe = wireless.control_status()
         return {**probe, "enabled": enabled,
                 "ready": enabled and probe["ready"] and not wda_client.stop_engaged(),
                 "stop": wda_client.stop_engaged(), "wda_ui_tree": False}
