@@ -57,6 +57,11 @@ GO_IOS_AGENT_PORT = get("GO_IOS_AGENT_PORT", "28100") or "28100"
 # Optional overrides
 # Read by device.detect_wda_bundle; else auto-detected from installed apps.
 WDA_BUNDLE_ID = get("WDA_BUNDLE_ID")  # noqa: vulture
+
+# In the one-slot LiveContainer fork, WDA's XCTest bundle is INSIDE the
+# LiveContainer IPA. No separately registered WDA app should be searched for,
+# installed, resigned, or charged against the user's free developer app slots.
+SIDETAP_WDA_MODE = get("SIDETAP_WDA_MODE", "embedded-livecontainer")
 PHONE_PASSCODE = get("PHONE_PASSCODE")  # noqa: vulture  (opt-in: lets helpers.unlock() type it)
 
 # Prompt-injection gate: always | flagged | off. The default for this machine;

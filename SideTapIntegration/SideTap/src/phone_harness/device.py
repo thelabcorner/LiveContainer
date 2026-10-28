@@ -245,6 +245,34 @@ def detect_wda_bundle() -> str | None:  # noqa: vulture  (called from admin.py/v
         apps = list_apps()
     except (DeviceError, subprocess.TimeoutExpired):
         apps = []
+    if config.SIDETAP_WDA_MODE == "embedded-livecontainer":
+        # The *installed* bundle id has a user/team-specific signing suffix.
+        # Never mistake LiveContainer2/3 for the primary upgrade identity.
+        import re
+        matches = [
+            app["bundle_id"] for app in apps
+            if re.fullmatch(r"com\.kdt\.livecontainer(?:\.[A-Za-z0-9]+)?",
+                            app.get("bundle_id", ""), re.IGNORECASE)
+            and app.get("name", "").split()[0].lower() == "livecontainer"
+        ]
+        if len(matches) == 1:
+            try:
+                config.STATE_DIR.mkdir(exist_ok=True)
+                _wda_cache_file().write_text(matches[0], encoding="utf-8")
+            except OSError:
+                pass
+            return matches[0]
+        if not apps:
+            try:
+                cached = _wda_cache_file().read_text(encoding="utf-8").strip()
+            except OSError:
+                return None
+            return cached if re.fullmatch(
+                r"com\.kdt\.livecontainer(?:\.[A-Za-z0-9]+)?", cached,
+                re.IGNORECASE
+            ) else None
+        # Ambiguous/missing primary LiveContainer: fail closed, not a guest slot.
+        return None
     for app in apps:
         bid = app["bundle_id"].lower()
         if "webdriveragent" in bid or bid.endswith(".xctrunner"):

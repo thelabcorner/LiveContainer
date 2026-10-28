@@ -111,6 +111,12 @@ def _check_wda_installed():
         )
     bundle = device.detect_wda_bundle()
     if bundle:
+        if config.SIDETAP_WDA_MODE == "embedded-livecontainer":
+            return (
+                True,
+                f"LiveContainer XCTest host present: {bundle} (embedded WDA execution not yet verified)",
+                "",
+            )
         return True, f"WebDriverAgent installed: {bundle}", ""
     # No bundle: separate "phone asleep (empty app list)" from "really absent".
     # Deep sleep empties the list while the app is still installed (2026-08-10).
@@ -127,12 +133,19 @@ def _check_wda_installed():
                 "automatically; or run: phone-harness up"
             ),
         )
+    if config.SIDETAP_WDA_MODE == "embedded-livecontainer":
+        return (
+            False,
+            "Primary LiveContainer application not found",
+            "Install/update the single com.kdt.livecontainer.ipa from your fork's GitHub "
+            "Actions artifact. No separate WDA installation or second app slot.",
+        )
     return (
         False,
         "WebDriverAgent app not found on the phone",
         (
-            "Sideload it with Sideloadly + your free Apple ID. See docs/setup-windows.md step 3. "
-            "If it IS installed under a custom name, set WDA_BUNDLE_ID in .env."
+            "A standalone WDA runner is absent. This integration uses "
+            "SIDETAP_WDA_MODE=embedded-livecontainer to avoid another app slot."
         ),
     )
 
@@ -593,6 +606,13 @@ def _up(wait_seconds: float) -> int:
             "The link was WEDGED before this restart, so error 103 here is the "
             "stuck runner, not the signature. Put the phone on the Home Screen "
             "by hand, then run `phone-harness up` again."
+        )
+        return 1
+    if config.SIDETAP_WDA_MODE == "embedded-livecontainer":
+        print(
+            "Bundled WDA startup failed. This is an XCTest host/bootstrap or signing "
+            "diagnostic; install the updated single LiveContainer IPA, not WDA separately. "
+            "The original LiveContainer identity and saved data must be preserved."
         )
         return 1
     from . import signing

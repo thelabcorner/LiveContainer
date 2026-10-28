@@ -81,6 +81,28 @@ jobs:
         with:
           name: ${{ env.scheme }}+SideStore.ipa
           path: ${{ env.scheme }}+SideStore.ipa
+      # One registered iOS app. Embed only Appium's .xctest bundle; never
+      # package WebDriverAgentRunner-Runner.app as a second principal app.
+      - name: Fetch pinned Appium WDA test bundle
+        if: github.ref == 'refs/heads/feature/one-slot-sidetap-wda'
+        run: |
+          curl --fail --location --retry 3             'https://github.com/appium/WebDriverAgent/releases/download/v13.2.0/WebDriverAgentRunner-Runner.zip'             --output WebDriverAgentRunner-Runner.zip
+
+      - name: Assemble and audit one-slot SideTap WDA IPA
+        if: github.ref == 'refs/heads/feature/one-slot-sidetap-wda'
+        run: |
+          python3 scripts/build_sidetap_wda_ipa.py             --host "$scheme+SideStore.ipa"             --wda WebDriverAgentRunner-Runner.zip             --out com.kdt.livecontainer.ipa
+          python3 scripts/validate_sidetap_bundle.py com.kdt.livecontainer.ipa --require-wda
+          python3 -m unittest discover -s tests -p test_sidetap_wda_release.py
+
+      - name: Publish one-slot LiveContainer+SideStore+SideTap+WDA
+        if: github.ref == 'refs/heads/feature/one-slot-sidetap-wda'
+        uses: actions/upload-artifact@v7
+        with:
+          name: com.kdt.livecontainer.ipa
+          path: com.kdt.livecontainer.ipa
+          archive: false
+          if-no-files-found: error
 
   release__nightly:
     name: Nightly Release

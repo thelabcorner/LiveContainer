@@ -259,6 +259,7 @@
   .check.bad .fix { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 
   /* ---- fix-input panel ----------------------------------------------- */
+  #btn-fix, #btn-sig-fix, #setup-fix { display: none !important; }
   #fix-panel { margin-top:0; padding:0; border:0; background:none; }   /* look lives in #ov-panel now */
   #fix-body { margin-top:var(--s1); line-height:1.6; }
   #fix-steps { margin-top:var(--s2); display:flex; flex-direction:column; gap:2px; }
@@ -574,10 +575,10 @@
         <div id="doctor" hidden><div class="dim">Running checks…</div></div>
         <div id="fix-panel" hidden>
           <div class="dim" id="fix-body">
-            Touch input needs WebDriverAgent re-signed. Click <b>Fix input</b>, then in
-            Sideloadly load <code>wda/WebDriverAgent.ipa</code> and press Start. It signs
-            the driver locally with your existing Apple ID. No password re-entry.
-          </div>
+            Touch input requires the updated <b>LiveContainer + SideStore + SideTap
+              + WDA</b> IPA from your GitHub Actions build. Update that single IPA
+              over the existing LiveContainer identity. No separately installed WDA.
+            </div>
           <div id="fix-steps"></div>
         </div>
         <div id="setup" hidden></div>
@@ -2059,16 +2060,14 @@ const SETUP_STEPS = [
    'On the iPhone: Settings → Privacy &amp; Security → Developer Mode → On. The phone restarts. ' +
    'Menu not there? Run <code>ios devmode reveal</code> in a terminal ' +
    '<button class="copy-btn" data-cmd="ios devmode reveal">⧉ copy</button> and reopen Settings.'],
-  ['WebDriverAgent on the phone', ['WDA installed (input)'],
-   'Install <a href="https://sideloadly.io" target="_blank" rel="noopener">Sideloadly</a>. Download the newest ' +
-   '<code>WebDriverAgentRunner-Runner-*.ipa</code> from ' +
-   '<a href="https://github.com/appium/WebDriverAgent/releases" target="_blank" rel="noopener">WDA releases</a> ' +
-   'and save it as <code>WebDriverAgent.ipa</code> in <code>%WDA_DIR%</code>. ' +
-   'In Sideloadly: pick that ipa, pick your iPhone, sign in with your free Apple ID, Start. ' +
-   'Then on the phone: Settings → General → VPN &amp; Device Management → trust your profile.'],
+  ['Bundled WDA in LiveContainer', ['WDA installed (input)'],
+   'Open the LiveContainer Actions build in thelabcorner/LiveContainer on GitHub, ' +
+   'download <code>com.kdt.livecontainer.ipa</code>, and update the existing ' +
+   'LiveContainer using the same signing identity and installed-app slot. ' +
+   'The runner is bundled; do not separately install WDA.'],
   ['Touch input signed', ['WDA responding (input)', 'input signature (7-day)'],
-   'Click <button id="setup-fix">🔧 Fix input</button> and press Start in Sideloadly when it asks. ' +
-   'A free Apple ID means repeating this weekly — SideTap reminds you before it expires.'],
+   'Use the updated single LiveContainer IPA from your fork on GitHub. ' +
+     'WDA is included inside that application; no additional app installation is required.'],
 ];
 function renderSetup() {
   const el = document.getElementById('setup');

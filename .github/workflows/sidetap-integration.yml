@@ -31,7 +31,7 @@ jobs:
       - name: Install test runner
         run: python -m pip install --disable-pip-version-check pytest
       - name: Offline one-slot archive and staging invariants
-        run: python -m pytest -q tests/test_sidetap_bundle_validator.py tests/test_sidetap_wda_staging.py tests/test_sidetap_app_structure.py
+        run: python -m pytest -q tests/test_sidetap_bundle_validator.py tests/test_sidetap_wda_staging.py tests/test_sidetap_app_structure.py tests/test_sidetap_wda_release.py
 
   sidetap-source-tests:
     runs-on: ubuntu-latest
@@ -49,6 +49,9 @@ jobs:
         run: python -m pip install --disable-pip-version-check -r ../requirements-ci.txt
       - name: Run pinned upstream SideTap suite and forked CoreDevice/companion regressions
         run: python -m pytest -q tests
+
+      - name: Validate integrated LiveContainer WDA selection and no-sideload invariant
+        run: python -m pytest -q ../../tests/test_sidetap_embedded_runtime.py
 
 # These jobs intentionally never sign, install, launch XCTest on, or modify a phone.
 # No device-integrity, XCTest bootstrap or Apple free-slot claim follows from CI.

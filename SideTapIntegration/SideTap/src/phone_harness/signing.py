@@ -433,6 +433,14 @@ def fix_input(  # noqa: vulture  (viewer worker + dispatched by name from run.py
     Returns {"ok": bool, "step": str, "message": str}. `progress(step, message)`
     is called at each stage so a CLI or the viewer can show live status.
     """
+    if config.SIDETAP_WDA_MODE == "embedded-livecontainer":
+        return {
+            "ok": False,
+            "step": "integrated",
+            "message": "WDA belongs to your single LiveContainer IPA. Install/update "
+                       "com.kdt.livecontainer.ipa from the GitHub build; do not "
+                       "sideload a separate WDA or consume another app slot.",
+        }
     if not WDA_IPA.exists():
         return {
             "ok": False,
