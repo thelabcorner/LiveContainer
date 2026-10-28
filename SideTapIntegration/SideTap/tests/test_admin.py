@@ -207,7 +207,7 @@ def test_wda_check_still_fails_when_really_uninstalled(monkeypatch, tmp_path):
     ok, detail, fix = admin._check_wda_installed()
     assert not ok
     assert "not found" in detail
-    assert "Sideload" in fix
+    assert "embedded-livecontainer" in fix
 
 
 def test_bringing_up_tracks_an_in_flight_up(monkeypatch):
