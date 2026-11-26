@@ -113,6 +113,8 @@ def build(output: Path) -> dict:
             "anisetteKitSource": ANISETTEKIT_COMMIT,
             "marketingVersion": MARKETING_VERSION,
             "authHeaderNormalization": "macOS -> Mac OS X (preserves Anisette provider)",
+            "authRecovery": "Consented, single GSA init -22410 retry on cached ADI; rollback on failure",
+            "certificatePreservation": True,
         }
         print("SIDESTORE_AUTHFIX_BUILD " + json.dumps(report), flush=True)
         return report

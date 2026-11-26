@@ -166,27 +166,27 @@ class SideStoreAuthFixRegression(unittest.TestCase):
         self.auth = self.root / "Dependencies/SideSign/Sources/DeveloperPortal/Authentication.swift"
         self.config.parent.mkdir(parents=True)
         self.auth.parent.mkdir(parents=True)
-        self.config.write_text(
-            'let useOnDeviceAnisette = true\n'
-            '$0.clientInfo = config.clientInfo.isEmpty ? AppConstants.Anisette.defaultClientInfo : config.clientInfo\n'
-            'let remoteAnisette = true\n',
-            encoding="utf-8",
-        )
-        self.auth.write_text(
-            '"X-MMe-Client-Info": anisetteData.clientInfo,\n'
-            '"X-MMe-Client-Info": a.clientInfo,\n',
-            encoding="utf-8",
-        )
         patch_spec = importlib.util.spec_from_file_location(
             "sidestore_authfix_patch", ROOT / "scripts/patch_sidestore_authfix.py"
         )
         self.patch = importlib.util.module_from_spec(patch_spec)
         patch_spec.loader.exec_module(self.patch)
+        for relative, replacements in self.patch.EDIT_MAP.items():
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fixture = "\n".join(old for old, new in replacements) + "\n"
+            if relative == self.patch.CONFIG_PATH:
+                fixture = "let useOnDeviceAnisette = true\n" + fixture + "let remoteAnisette = true\n"
+            path.write_text(fixture, encoding="utf-8")
 
     def test_both_providers_and_both_apple_auth_paths_are_fixed(self):
         changes = self.patch.patch_sources(self.root, verify_git=False)
         self.assertEqual(changes[self.patch.CONFIG_PATH], 1)
-        self.assertEqual(changes[self.patch.AUTH_PATH], 2)
+        self.assertEqual(changes[self.patch.AUTH_PATH], 4)
+        self.assertEqual(changes[self.patch.ERROR_PATH], 3)
+        self.assertEqual(changes[self.patch.SIGN_IN_PATH], 4)
+        self.assertEqual(changes[self.patch.PROTOCOL_PATH], 1)
+        self.assertEqual(changes[self.patch.HANDLER_PATH], 1)
         config = self.config.read_text()
         auth = self.auth.read_text()
         self.assertIn("let useOnDeviceAnisette = true", config)
@@ -213,3 +213,56 @@ class SideStoreAuthFixRegression(unittest.TestCase):
         self.assertEqual(self.patch.SIDESIGN_COMMIT, "752d1ef602aa792a432ffa1e71646dc1ecf7363c")
         self.assertEqual(self.patch.ANISETTEKIT_COMMIT, "db8b41022697b6c19be8a5f01a1ce834145a2a26")
         self.assertIn("authfix", self.patch.MARKETING_VERSION)
+
+    def test_recovery_requires_stage_consent_and_previous_blob(self):
+        self.patch.patch_sources(self.root, verify_git=False)
+        source = (self.root / self.patch.SIGN_IN_PATH).read_text()
+        auth = (self.root / self.patch.AUTH_PATH).read_text()
+        errors = (self.root / self.patch.ERROR_PATH).read_text()
+        handler = (self.root / self.patch.HANDLER_PATH).read_text()
+        proto = (self.root / self.patch.PROTOCOL_PATH).read_text()
+        self.assertIn('authPhase = requestParameters["o"] as? String ?? "unknown"', auth)
+        self.assertIn('if errorCode == -22410', auth)
+        self.assertIn('case grandSlamRejection(code: Int, phase: String, message: String)', errors)
+        self.assertIn('code == -22410, phase == "init"', source)
+        self.assertIn('let previouslyStoredAdi = AnisetteConfigManager.shared.anisetteAdiBlob', source)
+        self.assertIn('let oldBlob = previouslyStoredAdi, !oldBlob.isEmpty', source)
+        self.assertIn('guard await self.signInHandler.confirmStaleAnisetteRecovery() else', source)
+        self.assertIn('func confirmStaleAnisetteRecovery() async -> Bool', proto)
+        self.assertIn('func confirmStaleAnisetteRecovery() async -> Bool', handler)
+        self.assertIn('Keep Current Identity', handler)
+        self.assertIn('Try Fresh Provisioning', handler)
+        self.assertIn('let provider = useOnDevice ? "on-device"', source)
+        self.assertNotIn('UserDefaults.standard.useOnDeviceAnisette = false', source)
+
+    def test_failed_recovery_restores_blob_and_preserves_certificate(self):
+        self.patch.patch_sources(self.root, verify_git=False)
+        source = (self.root / self.patch.SIGN_IN_PATH).read_text()
+        self.assertIn('await AuthManager.shared.signOut(keepCertificate: true)', source)
+        self.assertNotIn('await AuthManager.shared.signOut()', source)
+        self.assertEqual(source.count('AnisetteConfigManager.shared.anisetteAdiBlob = nil'), 1)
+        self.assertEqual(source.count('AnisetteConfigManager.shared.anisetteAdiBlob = oldBlob'), 1)
+        self.assertIn('AnisetteDataManager.shared.clearCache()', source)
+        self.assertIn('if self.isCancelled { throw OperationError.cancelled }', source)
+        self.assertEqual(source.count('result = try await self.performAppleSignIn('), 2)
+        self.assertNotIn('Keychain.shared.clearAll()', source)
+
+    def test_one_attempt_state_does_not_store_raw_adi(self):
+        self.patch.patch_sources(self.root, verify_git=False)
+        source = (self.root / self.patch.SIGN_IN_PATH).read_text()
+        self.assertIn('private actor StaleAnisetteRecoveryGate', source)
+        self.assertIn('Data(SHA256.hash(data: Data(context.utf8))).base64EncodedString()', source)
+        self.assertIn('func canAttempt(_ fingerprint: String) -> Bool', source)
+        self.assertIn('guard canAttempt(fingerprint) else { return false }', source)
+        self.assertIn('UserDefaults.standard.set(fingerprint, forKey: attemptKey)', source)
+        self.assertNotIn('UserDefaults.standard.set(blob,', source)
+
+    def test_six_source_preflight_failure_is_atomic(self):
+        before = {p: (self.root / p).read_bytes() for p in self.patch.EDIT_MAP}
+        missing = self.root / self.patch.PROTOCOL_PATH
+        missing.write_text("unexpected source", encoding="utf-8")
+        with self.assertRaisesRegex(self.patch.PatchError, "source anchor"):
+            self.patch.patch_sources(self.root, verify_git=False)
+        for path, original in before.items():
+            if path != self.patch.PROTOCOL_PATH:
+                self.assertEqual((self.root / path).read_bytes(), original)
