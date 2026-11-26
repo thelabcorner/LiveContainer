@@ -74,3 +74,7 @@ ldid -S.github/sidelc/LiveWidgetExtension_adhoc.xml ./Payload/LiveContainer.app/
 
 # package
 zip -r "$scheme+SideStore.ipa" "Payload" -x "._*" -x ".DS_Store" -x "__MACOSX"
+# SideStore's remote-URL installer derives the provisional app bundle ID from
+# the IPA basename. Publish an equivalent URL-safe filename alongside the
+# human-readable +SideStore variant. Do not rewrite CFBundleIdentifier.
+cp "$scheme+SideStore.ipa" "com.kdt.livecontainer.ipa"
