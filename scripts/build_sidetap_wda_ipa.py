@@ -19,6 +19,9 @@ from pathlib import Path, PurePosixPath
 
 HOST = "Payload/LiveContainer.app/"
 PLUGIN = HOST + "PlugIns/WebDriverAgentRunner.xctest/"
+HOST_ID = "com.kdt.livecontainer"
+WDA_SOURCE_ID = "com.facebook.WebDriverAgentRunner"
+WDA_BUNDLE_ID = HOST_ID + ".WebDriverAgentRunner"
 WDA_VERSION = "v13.2.0"
 WDA_SHA256 = "448ffe591cf64abf7ff0751897b6860cd45b8032b39677a5dd79f827c4d781cc"
 WDA_PREFIXES = (
@@ -80,7 +83,7 @@ def package(host: Path, wda: Path, output: Path, *, check_hash: bool = True) -> 
         if apps != {"LiveContainer.app"}:
             raise PackagingError("Expected exactly one principal LiveContainer.app")
         metadata = _plist(source, HOST + "Info.plist")
-        if metadata.get("CFBundleIdentifier") != "com.kdt.livecontainer":
+        if metadata.get("CFBundleIdentifier") != HOST_ID:
             raise PackagingError("Host bundle ID changed; would break upgrade identity")
         exe = metadata.get("CFBundleExecutable")
         if not isinstance(exe, str) or HOST + exe not in h:
@@ -94,6 +97,12 @@ def package(host: Path, wda: Path, output: Path, *, check_hash: bool = True) -> 
         if prefix is None:
             raise PackagingError("Official WebDriverAgentRunner.xctest absent")
         wda_info = _plist(driver, prefix + "Info.plist")
+        if wda_info.get("CFBundleIdentifier") != WDA_SOURCE_ID:
+            raise PackagingError("Unexpected upstream WDA test bundle identifier")
+        # isideload 0.5.2 scans every immediate PlugIns child with Info.plist,
+        # not just .appex. Use a host-relative ID so ordinary signing can
+        # substitute the signed host ID. The runner filename stays unchanged.
+        wda_info["CFBundleIdentifier"] = WDA_BUNDLE_ID
         runner = wda_info.get("CFBundleExecutable")
         if (not isinstance(runner, str) or prefix + runner not in w
                 or wda_info.get("CFBundlePackageType") != "BNDL"):
@@ -127,11 +136,15 @@ def package(host: Path, wda: Path, output: Path, *, check_hash: bool = True) -> 
                     else:
                         target.writestr(info, source.read(name))
                 for name in nested:
-                    target.writestr(PLUGIN + name[len(prefix):], driver.read(name))
+                    data = (plistlib.dumps(wda_info, fmt=plistlib.FMT_BINARY)
+                            if name == prefix + "Info.plist" else driver.read(name))
+                    target.writestr(PLUGIN + name[len(prefix):], data)
             with zipfile.ZipFile(tmp) as verify:
                 members = _index(verify)
                 if PLUGIN + runner not in members or PLUGIN + "Info.plist" not in members:
                     raise PackagingError("Output lost WDA executable")
+                if _plist(verify, PLUGIN + "Info.plist").get("CFBundleIdentifier") != WDA_BUNDLE_ID:
+                    raise PackagingError("Output lost the host-relative WDA bundle identifier")
             os.replace(tmp, output)
         finally:
             if tmp is not None:
@@ -144,6 +157,7 @@ def package(host: Path, wda: Path, output: Path, *, check_hash: bool = True) -> 
         "wda_release": WDA_VERSION,
         "wda_sha256": actual_hash,
         "embedded_wda_bundle": PLUGIN,
+        "embedded_wda_bundle_id": WDA_BUNDLE_ID,
         "embedded_wda_files": len(nested),
         "requires_normal_install_resigning": True,
         "xctest_bootstrap_verified": False,

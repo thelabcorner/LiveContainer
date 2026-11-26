@@ -31,6 +31,10 @@ def host_members():
         "Payload/LiveContainer.app/LiveContainer": b"existing-executable",
         "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore": b"existing-sidestore",
         "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/LiveProcess": b"other-extension",
+        "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/Info.plist": plistlib.dumps({
+            "CFBundleIdentifier": "com.kdt.livecontainer.LiveProcess",
+            "CFBundleExecutable": "LiveProcess",
+        }),
     }
 
 
@@ -42,6 +46,7 @@ def wda_members():
             "CFBundlePackageType": "APPL",
         }),
         p + "Info.plist": plistlib.dumps({
+            "CFBundleIdentifier": "com.facebook.WebDriverAgentRunner",
             "CFBundleExecutable": "WebDriverAgentRunner", "CFBundlePackageType": "BNDL",
         }),
         p + "WebDriverAgentRunner": b"test-runner",
@@ -77,6 +82,38 @@ class ReleasePackaging(unittest.TestCase):
             self.assertNotIn(module.PLUGIN + "WebDriverAgentRunner.xctest.dSYM/Contents/Info.plist", ipa.namelist())
             info = plistlib.loads(ipa.read("Payload/LiveContainer.app/Info.plist"))
             self.assertEqual(info["LCEmbeddedWDARunner"]["TestBundle"], "WebDriverAgentRunner.xctest")
+
+    def test_iloader_052_bundle_id_rewrite_regression(self):
+        report = self.build()
+        self.assertEqual(report["embedded_wda_bundle_id"], "com.kdt.livecontainer.WebDriverAgentRunner")
+        with zipfile.ZipFile(self.out) as ipa, zipfile.ZipFile(self.wda) as source:
+            host_id = plistlib.loads(ipa.read(module.HOST + "Info.plist"))["CFBundleIdentifier"]
+            wda_info = plistlib.loads(ipa.read(module.PLUGIN + "Info.plist"))
+            runner_id = wda_info["CFBundleIdentifier"]
+            # Reproduce the exact isideload 0.5.2 application.rs:170-181
+            # prefix predicate and the signed-host substitution.
+            self.assertTrue(runner_id.startswith(host_id) and len(runner_id) > len(host_id))
+            signed_host = host_id + ".TESTTEAM"
+            self.assertEqual(signed_host + runner_id[len(host_id):],
+                             "com.kdt.livecontainer.TESTTEAM.WebDriverAgentRunner")
+            self.assertEqual(wda_info["CFBundleExecutable"], "WebDriverAgentRunner")
+            self.assertEqual(ipa.read(module.PLUGIN + "WebDriverAgentRunner"),
+                             source.read(module.WDA_PREFIXES[0] + "WebDriverAgentRunner"))
+            self.assertEqual(plistlib.loads(source.read(module.WDA_PREFIXES[0] + "Info.plist"))["CFBundleIdentifier"],
+                             "com.facebook.WebDriverAgentRunner")
+            self.assertEqual(ipa.read(module.HOST + "PlugIns/LiveProcess.appex/Info.plist"),
+                             host_members()[module.HOST + "PlugIns/LiveProcess.appex/Info.plist"])
+
+    def test_unexpected_source_bundle_id_rejected(self):
+        members = wda_members()
+        name = module.WDA_PREFIXES[0] + "Info.plist"
+        info = plistlib.loads(members[name])
+        info["CFBundleIdentifier"] = "unrelated.runner"
+        members[name] = plistlib.dumps(info)
+        archive(self.wda, members)
+        with self.assertRaisesRegex(module.PackagingError, "upstream WDA test bundle identifier"):
+            self.build()
+        self.assertFalse(self.out.exists())
 
     def test_source_checksum_protected(self):
         with self.assertRaisesRegex(module.PackagingError, "SHA-256"):

@@ -12,7 +12,8 @@ validator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(validator)
 
 
-def make_ipa(path, *, extra_app=False, xctest=False, in_wrong_parent=False, missing_runner=False):
+def make_ipa(path, *, extra_app=False, xctest=False, in_wrong_parent=False, missing_runner=False,
+             wda_id="com.kdt.livecontainer.WebDriverAgentRunner"):
     host = "Payload/LiveContainer.app/"
     manifest = {
         host + "Info.plist": plistlib.dumps({"CFBundleIdentifier": "com.kdt.livecontainer", "CFBundleExecutable": "LiveContainer"}),
@@ -23,7 +24,10 @@ def make_ipa(path, *, extra_app=False, xctest=False, in_wrong_parent=False, miss
         manifest["Payload/WebDriverAgent.app/Info.plist"] = b"app"
     if xctest:
         prefix = (host + "Frameworks/SideStoreApp.framework/" if in_wrong_parent else host) + "PlugIns/WebDriverAgentRunner.xctest/"
-        manifest[prefix + "Info.plist"] = plistlib.dumps({"CFBundleExecutable": "WebDriverAgentRunner"})
+        info = {"CFBundleExecutable": "WebDriverAgentRunner"}
+        if wda_id is not None:
+            info["CFBundleIdentifier"] = wda_id
+        manifest[prefix + "Info.plist"] = plistlib.dumps(info)
         if not missing_runner:
             manifest[prefix + "WebDriverAgentRunner"] = b"mock XCTest"
     with zipfile.ZipFile(path, "w") as z:
@@ -60,6 +64,28 @@ class TestOneSlotIPAStructure(unittest.TestCase):
             result = validator.inspect_ipa(path, require_wda=True)
             self.assertTrue(result["valid_structure"], result["errors"])
             self.assertTrue(any("XCTest bootstrap" in x for x in result["warnings"]))
+
+    def test_rejects_iloader_incompatible_wda_identifiers(self):
+        for bundle_id in ("com.facebook.WebDriverAgentRunner", "com.kdt.livecontainer",
+                          "com.kdt.livecontainerOther.WebDriverAgentRunner",
+                          "com.kdt.livecontainer.", None):
+            with self.subTest(bundle_id=bundle_id), tempfile.TemporaryDirectory() as d:
+                path = Path(d) / "invalid.ipa"
+                make_ipa(path, xctest=True, wda_id=bundle_id)
+                result = validator.inspect_ipa(path, require_wda=True)
+                self.assertFalse(result["valid_structure"])
+                self.assertTrue(any("bundle identifier" in error for error in result["errors"]))
+
+    def test_rejects_other_foreign_direct_plugin(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "invalid.ipa"
+            make_ipa(path, xctest=True)
+            with zipfile.ZipFile(path, "a") as z:
+                z.writestr("Payload/LiveContainer.app/PlugIns/Foreign.appex/Info.plist",
+                           plistlib.dumps({"CFBundleIdentifier": "com.foreign.extension"}))
+            result = validator.inspect_ipa(path, require_wda=True)
+            self.assertFalse(result["valid_structure"])
+            self.assertTrue(any("Foreign.appex" in error for error in result["errors"]))
 
     def test_wrong_parent_for_xctest_is_rejected(self):
         with tempfile.TemporaryDirectory() as d:

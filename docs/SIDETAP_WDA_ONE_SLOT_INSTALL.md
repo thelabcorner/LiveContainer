@@ -7,6 +7,15 @@ WebDriverAgentLib.framework are now packaged inside the *same* LiveContainer.
 
 There is no standalone WDA app and no Sideloadly step.
 
+The release packager rewrites the original `com.facebook.WebDriverAgentRunner`
+XCTest plist identifier to `com.kdt.livecontainer.WebDriverAgentRunner`.
+This satisfies the host-prefix check in iLoader 2.4.2 / isideload 0.5.2
+(`application.rs:170-181`, commit `326e56229d0727cb6e7b34c8cf03e37e2cd3e17d`).
+The executable filename and host identity are unchanged. The normal signer
+can substitute the signed host ID. This resolves the known pre-signing
+identifier rejection; it does not prove provisioning, installation, refresh,
+actual slot consumption, or XCTest startup.
+
 ## Build and install the combined IPA
 
 Open the GitHub Actions page for the feature/one-slot-sidetap-wda branch:

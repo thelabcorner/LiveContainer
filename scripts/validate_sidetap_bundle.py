@@ -60,6 +60,30 @@ def inspect_ipa(path: Path, *, require_wda: bool = False) -> dict:
         if not any(name.startswith(sidestore) for name in names):
             errors.append("Embedded SideStore framework not present")
 
+        # Match the scope of isideload 0.5.2 Bundle::new: any immediate
+        # PlugIns directory with Info.plist is an extension, including .xctest.
+        # Require a dot-delimited child ID (stricter than its raw prefix test).
+        plugin_root = host + "PlugIns/"
+        plugin_ids = set()
+        for name in sorted(indexed):
+            if not name.startswith(plugin_root):
+                continue
+            parts = name[len(plugin_root):].split("/")
+            if len(parts) != 2 or parts[1] != "Info.plist":
+                continue
+            plugin_info = plist_at(name)
+            if plugin_info is None:
+                continue
+            plugin_id = plugin_info.get("CFBundleIdentifier")
+            if (not isinstance(host_id, str) or not isinstance(plugin_id, str)
+                    or not plugin_id.startswith(host_id + ".")
+                    or len(plugin_id) <= len(host_id) + 1):
+                errors.append(f"PlugIn {parts[0]} bundle identifier is not a child of the host: {plugin_id!r}")
+            elif plugin_id in plugin_ids:
+                errors.append(f"Duplicate PlugIn bundle identifier: {plugin_id!r}")
+            else:
+                plugin_ids.add(plugin_id)
+
         test_paths = sorted({
             "/".join(name.split("/")[:i + 1]) + "/"
             for name in names
@@ -72,6 +96,9 @@ def inspect_ipa(path: Path, *, require_wda: bool = False) -> dict:
                 continue
             bundle = plist_at(prefix + "Info.plist")
             if bundle is not None:
+                if prefix == host + "PlugIns/WebDriverAgentRunner.xctest/":
+                    if bundle.get("CFBundleIdentifier") != "com.kdt.livecontainer.WebDriverAgentRunner":
+                        errors.append("WDA XCTest bundle identifier must be com.kdt.livecontainer.WebDriverAgentRunner")
                 executable = bundle.get("CFBundleExecutable")
                 if not isinstance(executable, str) or (prefix + executable) not in indexed:
                     errors.append("XCTest bundle missing declared executable: " + prefix)
