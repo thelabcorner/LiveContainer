@@ -19,6 +19,10 @@ MARKETING_VERSION = "0.7.0-20261126.2+044bd72a-authfix2"
 
 CONFIG_PATH = "SideStore/Core/Anisette/AnisetteConfigManager.swift"
 AUTH_PATH = "Dependencies/SideSign/Sources/DeveloperPortal/Authentication.swift"
+ERROR_PATH = "Dependencies/SideSign/Sources/Models/Errors.swift"
+SIGN_IN_PATH = "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
+PROTOCOL_PATH = "SideStore/Core/Operations/StandaloneExecutionHandler.swift"
+HANDLER_PATH = "SideStore/Handlers/SignInFlowHandler.swift"
 
 # Exact once-only changes, against the pinned upstream source.
 EDIT_MAP = {
