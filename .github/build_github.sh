@@ -39,10 +39,15 @@ mv ./tmp/SideStoreSupport.framework Payload/LiveContainer.app/Frameworks
 /usr/libexec/PlistBuddy -c "Add :PreferenceSpecifiers:3:Key string LCOpenSideStore" ./Payload/LiveContainer.app/Settings.bundle/Root.plist
 /usr/libexec/PlistBuddy -c "Add :PreferenceSpecifiers:3:DefaultValue bool false" ./Payload/LiveContainer.app/Settings.bundle/Root.plist
 
-# download SideStore
+# Build the pinned LiveContainer-compatible SideStore WITH the authentication fix.
+# Do not fall back to the stale upstream nightly if the build fails.
+if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  echo "Patched SideStore must be built by GitHub Actions" >&2
+  exit 1
+fi
+python3 scripts/build_sidestore_authfix.py --output tmp/SideStore.ipa || exit 1
 cd tmp
-wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa
-unzip SideStore.ipa
+unzip -q SideStore.ipa || exit 1
 cd ..
 
 # SideStore

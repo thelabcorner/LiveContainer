@@ -153,3 +153,63 @@ class ReleasePackaging(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SideStoreAuthFixRegression(unittest.TestCase):
+    """Runs in the existing Ubuntu structural audit and macOS IPA test step."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.config = self.root / "SideStore/Core/Anisette/AnisetteConfigManager.swift"
+        self.auth = self.root / "Dependencies/SideSign/Sources/DeveloperPortal/Authentication.swift"
+        self.config.parent.mkdir(parents=True)
+        self.auth.parent.mkdir(parents=True)
+        self.config.write_text(
+            'let useOnDeviceAnisette = true\n'
+            '$0.clientInfo = config.clientInfo.isEmpty ? AppConstants.Anisette.defaultClientInfo : config.clientInfo\n'
+            'let remoteAnisette = true\n',
+            encoding="utf-8",
+        )
+        self.auth.write_text(
+            '"X-MMe-Client-Info": anisetteData.clientInfo,\n'
+            '"X-MMe-Client-Info": a.clientInfo,\n',
+            encoding="utf-8",
+        )
+        patch_spec = importlib.util.spec_from_file_location(
+            "sidestore_authfix_patch", ROOT / "scripts/patch_sidestore_authfix.py"
+        )
+        self.patch = importlib.util.module_from_spec(patch_spec)
+        patch_spec.loader.exec_module(self.patch)
+
+    def test_both_providers_and_both_apple_auth_paths_are_fixed(self):
+        changes = self.patch.patch_sources(self.root, verify_git=False)
+        self.assertEqual(changes[self.patch.CONFIG_PATH], 1)
+        self.assertEqual(changes[self.patch.AUTH_PATH], 2)
+        config = self.config.read_text()
+        auth = self.auth.read_text()
+        self.assertIn("let useOnDeviceAnisette = true", config)
+        self.assertIn("let remoteAnisette = true", config)
+        self.assertEqual(config.count('replacingOccurrences(of: "<macOS;", with: "<Mac OS X;")'), 1)
+        self.assertEqual(auth.count('replacingOccurrences(of: "<macOS;", with: "<Mac OS X;")'), 2)
+        self.assertNotIn("new.ani.sidestore.io", config + auth)
+        self.assertNotIn("resetToDefaults", config + auth)
+
+    def test_rerunning_patch_or_partial_source_drift_is_rejected(self):
+        self.patch.patch_sources(self.root, verify_git=False)
+        with self.assertRaisesRegex(self.patch.PatchError, "source anchor"):
+            self.patch.patch_sources(self.root, verify_git=False)
+
+    def test_patch_is_atomic_before_writes(self):
+        before = self.config.read_text()
+        self.auth.write_text("unexpected upstream source", encoding="utf-8")
+        with self.assertRaisesRegex(self.patch.PatchError, "source anchor"):
+            self.patch.patch_sources(self.root, verify_git=False)
+        self.assertEqual(self.config.read_text(), before)
+
+    def test_pinned_provenance_and_marked_version(self):
+        self.assertEqual(self.patch.SIDESTORE_COMMIT, "044bd72ad4eb270c3900bd04dc6f508d0ac474db")
+        self.assertEqual(self.patch.SIDESIGN_COMMIT, "752d1ef602aa792a432ffa1e71646dc1ecf7363c")
+        self.assertEqual(self.patch.ANISETTEKIT_COMMIT, "db8b41022697b6c19be8a5f01a1ce834145a2a26")
+        self.assertIn("authfix", self.patch.MARKETING_VERSION)
